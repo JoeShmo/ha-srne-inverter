@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to SRNE Inverter",
+        "description": "Connects via Modbus RTU-over-TCP, typically through a ser2net bridge exposing a USB-serial connection from a Raspberry Pi or similar device.",
+        "data": {
+          "name": "Name",
+          "host": "Host (Pi IP address or hostname)",
+          "port": "Port",
+          "slave_id": "Modbus slave ID",
+          "profile_id": "Device protocol profile"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the device. Check the host/port and that the ser2net (or equivalent) bridge is running."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SRNE Inverter Options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    }
+  }
+}
