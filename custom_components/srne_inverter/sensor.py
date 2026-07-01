@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -96,7 +97,7 @@ class SrnePackedByteSensor(SrneInverterEntity, SensorEntity):
 
 
 class SrneQuarantineSensor(SrneInverterEntity, SensorEntity):
-    _attr_entity_category = "diagnostic"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, config_entry_id, device_model, device_name):
         pseudo = {"key": "quarantined_registers", "name": "Quarantined Registers",
