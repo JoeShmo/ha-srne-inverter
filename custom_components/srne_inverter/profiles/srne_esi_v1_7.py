@@ -818,3 +818,16 @@ REGISTERS: list[dict] = [
     # confirmed via timbit123 but not yet exposed as entities.
     # Add in a future version once entity types and options are fully validated.
 ]
+
+
+def get_register(key: str) -> dict | None:
+    """Look up a single register definition by its key."""
+    for reg in REGISTERS:
+        if reg["key"] == key:
+            return reg
+    return None
+
+
+def registers_by_entity(entity_type: str) -> list[dict]:
+    """Return all register definitions for a given entity platform type."""
+    return [r for r in REGISTERS if r["entity"] == entity_type]
