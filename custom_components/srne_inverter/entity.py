@@ -20,7 +20,7 @@ def _build_entity_name(register: dict) -> str:
     param = register.get("param_number")
     name = register["name"]
     if param is not None:
-        return f"(P{param:02d}) {name}"
+        return f"({param:02d}) {name}"
     return name
 
 

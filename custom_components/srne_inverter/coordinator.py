@@ -110,10 +110,14 @@ class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.profile = profile
-        # Only registers with access "r" or "rw" are polled — all of them,
-        # since "rw" registers still need their current value displayed.
+        # Registers with poll:False are excluded from the regular poll cycle.
+        # This covers E2xx inverter-config registers that many SRNE firmware
+        # versions return permission errors on when read repeatedly, causing
+        # the retry loop symptom. Those entities still exist and can be written
+        # to; they just won't show a current value until the device volunteers it.
         self._all_readable_registers = [
-            r for r in profile.REGISTERS if r["access"] in ("r", "rw")
+            r for r in profile.REGISTERS
+            if r["access"] in ("r", "rw") and r.get("poll", True)
         ]
         # key -> consecutive failure count. Once a key hits
         # _MAX_CONSECUTIVE_FAILURES it's excluded from _active_registers

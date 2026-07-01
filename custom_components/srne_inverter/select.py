@@ -49,6 +49,8 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
     def current_option(self) -> str | None:
         if self.coordinator.data is None:
             return None
+        if self._register["key"] not in self.coordinator.data:
+            return None
         raw = self.coordinator.data.get(self._register["key"])
         if raw is None:
             return None
