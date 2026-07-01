@@ -53,8 +53,8 @@ SUPPLY_PRIORITY_OPTIONS = {
 }
 
 CHARGE_MODE_OPTIONS = {
-    0: "Hybrid (PV + Grid)",
-    1: "Only PV",
+    0: "Only PV",
+    1: "Hybrid (PV + Grid)",
 }
 
 BATTERY_TYPE_OPTIONS = {
@@ -670,31 +670,30 @@ REGISTERS: list[dict] = [
 
     # ===================================================================
     # INVERTER CONFIG — writable (0xE2xx block)
+    # All addresses verified via live probe scan cross-referenced with
+    # timbit123/srne-modbus (mqtt_topic_config.py) against real SRNE hardware.
+    # The V1.7 protocol doc E20x addresses are factory mirror/shadow registers;
+    # active runtime settings live at different offsets confirmed below.
     # ===================================================================
 
     {
-        "key": "supply_priority",
-        "name": "Supply Priority Mode",
+        "key": "charge_source_priority",
+        "name": "Charging Source Priority",
         "address": 0xE20F,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
         "scale": 1, "unit": None, "device_class": None,
-        "options": SUPPLY_PRIORITY_OPTIONS,
-        "param_number": 1, "default": 3,
+        "options": {
+            0: "Solar First",
+            1: "Utility First",
+            2: "Solar and Utility Simultaneously",
+            3: "Solar Only",
+        },
+        "param_number": None, "default": None,
         "category": "inverter_config",
-        "note": "Parameter [01]: AC1ST / BT1ST / PV1ST / Mix Load (default).",
-    },
-    {
-        "key": "charging_mode",
-        "name": "Charging Mode",
-        "address": 0xE206,
-        "single_read": True,
-        "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
-        "scale": 1, "unit": None, "device_class": None,
-        "options": CHARGE_MODE_OPTIONS,
-        "param_number": 6, "default": 0,
-        "category": "inverter_config",
-        "note": "Parameter [06]: Hybrid (PV + Grid, default) or Only PV.",
+        "note": "How the battery is charged: Solar First / Utility First / Both / Solar Only. "
+                "Address 0xE20F confirmed (scan=3=Solar Only). timbit123: ChgSourcePriority. "
+                "Note: this is CHARGE source priority, not output priority (what powers loads).",
     },
     {
         "key": "max_charge_current",
@@ -702,16 +701,16 @@ REGISTERS: list[dict] = [
         "address": 0xE20A,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "number",
-        "scale": 1, "unit": "A", "device_class": "current",
-        "min_value": 0, "max_value": 100, "step": 1,
+        "scale": 0.1, "unit": "A", "device_class": "current",
+        "min_value": 0, "max_value": 100, "step": 0.1,
         "param_number": 7, "default": 60,
         "category": "inverter_config",
-        "note": "Parameter [07]: Maximum total charging current (PV + mains combined). "
-                "Range 0~100A. Default 60A.",
+        "note": "Parameter [07]: Max total charging current (PV + mains combined). "
+                "Scale 0.1 confirmed (raw=200→20.0A). timbit123: MaxChgCurr.",
     },
     {
         "key": "mains_charge_current_limit",
-        "name": "Current of Charging Under Grid",
+        "name": "Grid Charge Current Limit",
         "address": 0xE205,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "number",
@@ -719,8 +718,8 @@ REGISTERS: list[dict] = [
         "min_value": 0, "max_value": 60, "step": 1,
         "param_number": 28, "default": 60,
         "category": "inverter_config",
-        "note": "Parameter [28]: Max mains (grid) charge current. "
-                "230V model range 0~60A; 120V model range 0~40A. Default 60A (230V).",
+        "note": "Parameter [28]: Max grid charge current. "
+                "Confirmed (raw=20=20A). timbit123: GridChgCurrLimit.",
     },
     {
         "key": "ac_input_range",
@@ -729,11 +728,15 @@ REGISTERS: list[dict] = [
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
         "scale": 1, "unit": None, "device_class": None,
-        "options": AC_INPUT_RANGE_OPTIONS,
-        "param_number": 3, "default": 0,
+        "options": {
+            0: "Wide range (APL, 90~280V)",
+            1: "Narrow range (UPS, 170~280V)",
+        },
+        "param_number": 3, "default": 1,
         "category": "inverter_config",
-        "note": "Parameter [03]: UPS (narrow, 170~280V for 230V model) or "
-                "APL (wide, 90~280V for 230V model). Default UPS.",
+        "note": "Parameter [03]: Wide (APL) or Narrow (UPS). "
+                "Options confirmed via timbit123 (Wide=0, Narrow=1). "
+                "Probe shows 0xE20B=1=Narrow. V1.7 doc had this inverted.",
     },
     {
         "key": "output_voltage",
@@ -743,10 +746,10 @@ REGISTERS: list[dict] = [
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "number",
         "scale": 0.1, "unit": "V", "device_class": "voltage",
         "min_value": 100, "max_value": 264, "step": 1,
-        "param_number": 38, "default": 230,
+        "param_number": 38, "default": 120,
         "category": "inverter_config",
-        "note": "Parameter [38]: 230V model: 200/208/220/240Vac. "
-                "120V model: 100/105/110/120/127Vac. Only settable when rocker switch is off.",
+        "note": "Parameter [38]: Confirmed (raw=1200→120.0V). "
+                "Only settable when rocker switch is off.",
     },
     {
         "key": "output_frequency",
@@ -758,75 +761,60 @@ REGISTERS: list[dict] = [
         "min_value": 45, "max_value": 65, "step": 0.1,
         "param_number": 2, "default": 60,
         "category": "inverter_config",
-        "note": "Parameter [02]: 50Hz or 60Hz. Bypass self-adapts to mains when connected. "
-                "Default 60Hz for 120V (U) model. Only settable when rocker switch is off.",
+        "note": "Parameter [02]: Confirmed (raw=6000→60.00Hz). "
+                "Only settable when rocker switch is off.",
     },
     {
-        "key": "communication_function",
-        "name": "Communication Function",
-        "address": 0xE210,
-        "single_read": True,
-        "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
-        "scale": 1, "unit": None, "device_class": None,
-        "options": COMM_FUNCTION_OPTIONS,
-        "param_number": 32, "default": 0,
-        "category": "inverter_config",
-        "note": "Parameter [32]: SLA = RS485-2 for PC/host monitor (default). "
-                "485 = RS485-2 for BMS communication.",
-    },
-    {
-        "key": "bms_protocol",
-        "name": "BMS Communication Protocol",
-        "address": 0xE211,
-        "single_read": True,
-        "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
-        "scale": 1, "unit": None, "device_class": None,
-        "options": BMS_PROTOCOL_OPTIONS,
-        "param_number": 33, "default": None,
-        "category": "inverter_config",
-        "note": "Parameter [33]: Select BMS brand/protocol when [32] is set to 485 BMS mode. "
-                "PAC=PACE, RDA=Ritar, AOG=AllGrand, OLT=Oliter, HWD=Sunwoda, "
-                "DAQ=Daking, WOW=SRNE, PYL=Pylontech, UOL=Weilan.",
-    },
-    {
-        "key": "bms_communication_enable",
+        "key": "bms_comm_enable",
         "name": "BMS Communication Enable",
         "address": 0xE215,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
         "scale": 1, "unit": None, "device_class": None,
-        "options": ENABLE_DISABLE_OPTIONS,
+        "options": {
+            0: "Disable",
+            1: "RS485",
+            2: "CAN",
+        },
         "param_number": None, "default": 0,
         "category": "inverter_config",
-        "note": "When enabled, the inverter defers charge-voltage decisions to the BMS. "
-                "The static voltage setpoints in battery_config may become no-ops. "
-                "Verify BMS behavior after enabling. Also set Parameter [32] to '485' "
-                "and Parameter [33] to your BMS brand.",
+        "note": "BMS communication mode. Confirmed (0xE215=1=RS485). "
+                "timbit123: BmsCommEnable (0=Disable, 1=RS485, 2=CAN). "
+                "When enabled, set BMS Protocol to match your BMS.",
     },
     {
-        "key": "charge_current_limit_method",
-        "name": "Charge Current Limiting Method",
-        "address": 0xE21A,
+        "key": "bms_protocol",
+        "name": "BMS Communication Protocol",
+        "address": 0xE21B,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
         "scale": 1, "unit": None, "device_class": None,
-        "options": CHARGE_CURRENT_LIMIT_OPTIONS,
-        "param_number": 39, "default": 1,
+        "options": {
+            0: "PACE",
+            1: "RUDA (Ritar)",
+            2: "AOGUAN (AllGrand)",
+            3: "OULITE (Oliter)",
+            4: "CEF",
+            5: "XINWANGDA (Sunwoda)",
+            6: "DAQIN (Daking)",
+            7: "WOW (SRNE)",
+            8: "PYL (Pylontech)",
+            9: "MIT",
+            10: "XIX",
+            11: "POL",
+            12: "GUOX",
+            13: "SMK",
+            14: "VOL",
+            15: "WES",
+        },
+        "param_number": 33, "default": None,
         "category": "inverter_config",
-        "note": "Parameter [39]: Active when BMS is enabled. LC BMS = BMS governs limit "
-                "(default). LC SET = use Parameter [07] value. LC INV = inverter logic.",
+        "note": "Parameter [33]: BMS brand/protocol. "
+                "Address 0xE21B and Pylontech=8 confirmed (probe raw=8, timbit123 map). "
+                "Previous version used 0xE21C with Pylontech=7 — both were wrong.",
     },
+    # Output priority (what powers loads), power saving, alarm enable,
+    # auto-restart, bypass-on-overload, equalization enable: addresses
+    # confirmed via timbit123 but not yet exposed as entities.
+    # Add in a future version once entity types and options are fully validated.
 ]
-
-
-def get_register(key: str) -> dict | None:
-    """Look up a single register definition by its key."""
-    for reg in REGISTERS:
-        if reg["key"] == key:
-            return reg
-    return None
-
-
-def registers_by_entity(entity_type: str) -> list[dict]:
-    """Return all register definitions for a given entity platform type."""
-    return [r for r in REGISTERS if r["entity"] == entity_type]
