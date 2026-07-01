@@ -1,12 +1,4 @@
-"""Number platform for the SRNE Inverter integration.
-
-Covers writable registers with a continuous/numeric range (charge voltages,
-current limits, capacity, etc.). Min/max/step come straight from the active
-profile, so the HA UI slider itself enforces the same bounds the coordinator
-checks again before writing — belt and suspenders, per the requirement that
-out-of-range writes should be rejected rather than silently clamped or passed
-through.
-"""
+"""Number platform for the SRNE Inverter integration."""
 
 from __future__ import annotations
 
@@ -31,7 +23,6 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up number entities for all writable numeric registers."""
     coordinator: SrneInverterCoordinator = hass.data[DOMAIN][entry.entry_id]
     profile = coordinator.profile
     device_name = entry.title or DEFAULT_MODEL_NAME
@@ -56,6 +47,7 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
         self._attr_native_min_value = register.get("min_value", 0)
         self._attr_native_max_value = register.get("max_value", 65535)
         self._attr_native_step = register.get("step", 1)
+        self._default = register.get("default")
 
     @property
     def native_value(self):
@@ -63,8 +55,19 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
             return None
         return self.coordinator.data.get(self._register["key"])
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs: dict = {}
+        if self._default is not None:
+            attrs["default_value"] = self._default
+            current = self.native_value
+            if current is not None:
+                attrs["changed_from_default"] = (
+                    round(current, 6) != round(float(self._default), 6)
+                )
+        return attrs
+
     async def async_set_native_value(self, value: float) -> None:
-        """Validate (via the coordinator) and write the new value."""
         try:
             await self.coordinator.async_write_value(self._register["key"], value)
         except SrneWriteValidationError as err:

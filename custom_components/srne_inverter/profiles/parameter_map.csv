@@ -1,0 +1,64 @@
+param_number,param_name,default_value,options_or_range,modbus_address,notes
+00,Exit Settings,ESC,,, 
+01,Supply Priority Mode,Mix Load,"AC1ST, BT1ST, PV1ST, Mix Load",0xE20F,Mix Load is default
+02,Output Frequency,auto,"50.0, 60.0",,Only settable when rocker switch is off
+03,AC Input Voltage,UPS,"UPS, APL",0xE20B,
+04,Battery to Mains,46V,40V~52V,0xE01B,Switch threshold voltage
+05,Mains to Battery,56V,48V~60V,0xE022,Switch back to inverter voltage
+06,Charging Mode,Hybrid,"Hybrid, ONLYPV",0xE206_equiv,
+07,Maximum Charging Current,60A,0~100A,0xE20A,
+08,Battery Type,GEL,"USER, SLd, FLd, GEL, LFP14/15/16, NCM13/14, No battery",0xE004,
+09,Boost Voltage,57.6V,48V~58.4V step 0.4V,0xE008,Available for user-defined and lithium
+10,Maximum Boost Duration,120min,5min~900min step 5min,0xE012,
+11,Float Charge Voltage,55.2V,48V~58.4V step 0.4V,0xE009,
+12,Over-discharge Voltage,42V,40V~48V step 0.4V,0xE00D,
+13,Over-discharge Delay Time,5S,5S~50S step 5S,0xE010,
+14,Battery Under-voltage Alarm,44V,40V~52V step 0.4V,0xE00C,
+15,Battery Discharge Limit Voltage,40V,40V~52V step 0.4V,0xE00E,User-defined and lithium only
+16,Equalization Charge,ENA,"DIS, ENA",0xE206,Lead-acid only
+17,Equalization Voltage,58V,48V~58V step 0.4V,0xE007,Lead-acid and user-defined only
+18,Equalization Charging Time,120min,min~900min step 5min,0xE011,
+19,Equalized Charging Delay,120min,min~900min step 5min,0xE013,
+20,Equalization Charge Interval Time,30d,0~30d step 1d,0xE01A,
+21,Equalization Charging Start-Stop,DIS,"ENA, DIS",,Immediate start/stop
+22,ECO Mode,DIS,"DIS, ENA",,
+23,Overload Automatic Restart,ENA,"DIS, ENA",,
+24,Auto Restart Upon Over-temperature,ENA,"DIS, ENA",,
+25,Buzzer Alarm,ENA,"DIS, ENA",,
+26,Mode Change Reminder,ENA,"DIS, ENA",,
+27,Inverter Overload to Bypass,ENA,"DIS, ENA",,
+28,Current of Charging Under Grid,60A (230V) / 40A (120V),0~60A (230V) / 0~40A (120V),0xE205,
+30,RS485 Address Setting,1,1~254 standalone / 1~6 parallel,0xE216,
+31,AC Output Mode,SIG,"SIG, PAL, 2P0, 2P1, 2P2, 3P1, 3P2, 3P3",,Only settable when rocker switch is off
+32,Communication Function,SLA,"SLA, 485",0xE210,
+33,BMS Communication Protocol,,"PAC, RDA, AOG, OLT, HWD, DAQ, WOW, PYL, UOL",0xE211,
+34,ON-GRID Function (S series),DIS,"DIS, TOGRID",,
+35,Battery Under-voltage Recovery Point,52V,44V~54.4V,0xE01B,
+36,Max PV Charger Current,80A,0~100A,0xE001,
+37,Battery Recharge Recovery Point,52V,44V~54V,0xE022,
+38,AC Output Rated Voltage,230Vac / 120Vac,"200/208/220/240Vac or 100/105/110/120/127Vac",0xE208,Only settable when rocker switch is off
+39,Charge Current Limiting Method (BMS),LC BMS,"LC SET, LC BMS, LC INV",,
+40,1-Section Start Charging Time,00:00:00,00:00~23:59,,
+41,1-Section End Charging Time,00:00:00,00:00~23:59,,
+42,2-Section Start Charging Time,00:00:00,00:00~23:59,,
+43,2-Section End Charging Time,00:00:00,00:00~23:59,,
+44,3-Section Start Charging Time,00:00:00,00:00~23:59,,
+45,3-Section End Charging Time,00:00:00,00:00~23:59,,
+46,Sectional Charging Function,DIS,"DIS, ENA",,
+47,1-Section Start Discharging Time,00:00:00,00:00~23:59,,
+48,1-Section End Discharging Time,00:00:00,00:00~23:59,,
+49,2-Section Start Discharging Time,00:00:00,00:00~23:59,,
+50,2-Section End Discharging Time,00:00:00,00:00~23:59,,
+51,3-Section Start Discharging Time,00:00:00,00:00~23:59,,
+52,3-Section End Discharging Time,00:00:00,00:00~23:59,,
+53,Sectional Discharge Function,DIS,"DIS, ENA",,
+54,Current Date Setting,00:00:00,00:01:01~99:12:31,,
+55,Current Time Setting,00:00:00,00:00:00~23:59:59,,
+57,Stop Charging Current,2A,0~40A,0xE01C,Lithium only; charging stops when current drops below this
+58,Discharge Alarm SOC Setting,15%,0~100%,0xE01E,Valid when BMS communication is normal
+59,Cut-off Discharge SOC Settings,5%,0~100%,,Stops discharging below this SOC; register address not yet confirmed
+60,Cut-off Charge SOC Settings,100%,0~100%,0xE01D,Stops charging at or above this SOC
+61,Switch to Mains SOC Settings,10%,0~100%,0xE01F,SBU mode; switch to mains when SOC drops below this
+62,Switch to Inverter Output SOC Settings,100%,0~100%,0xE020,SBU mode; switch to inverter when SOC rises to this
+63,N-G Automatically Connect (U series),DIS,"DIS, ENA",,
+78,Battery Hybrid Discharge Current,100A,0~100A,,When battery and grid hybrid load; register address not yet confirmed

@@ -1,9 +1,4 @@
-"""Select platform for the SRNE Inverter integration.
-
-Covers writable registers whose value is a small fixed set of named options
-(battery type, charge priority, output priority, enable/disable toggles that
-are represented as registers rather than coils, etc.).
-"""
+"""Select platform for the SRNE Inverter integration."""
 
 from __future__ import annotations
 
@@ -28,7 +23,6 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up select entities for all writable enum registers."""
     coordinator: SrneInverterCoordinator = hass.data[DOMAIN][entry.entry_id]
     profile = coordinator.profile
     device_name = entry.title or DEFAULT_MODEL_NAME
@@ -49,6 +43,7 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
         self._options_map: dict[int, str] = register["options"]
         self._reverse_map: dict[str, int] = {v: k for k, v in self._options_map.items()}
         self._attr_options = list(self._options_map.values())
+        self._default_raw = register.get("default")
 
     @property
     def current_option(self) -> str | None:
@@ -59,8 +54,18 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
             return None
         return self._options_map.get(int(raw))
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs: dict = {}
+        if self._default_raw is not None:
+            default_label = self._options_map.get(int(self._default_raw))
+            attrs["default_value"] = default_label
+            current = self.current_option
+            if current is not None:
+                attrs["changed_from_default"] = (current != default_label)
+        return attrs
+
     async def async_select_option(self, option: str) -> None:
-        """Validate (via the coordinator) and write the new option."""
         raw_value = self._reverse_map.get(option)
         if raw_value is None:
             raise HomeAssistantError(f"Unknown option: {option}")

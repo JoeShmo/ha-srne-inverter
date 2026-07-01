@@ -15,6 +15,15 @@ from .const import DOMAIN, MANUFACTURER
 from .coordinator import SrneInverterCoordinator
 
 
+def _build_entity_name(register: dict) -> str:
+    """Prefix the register name with (P##) when a front-panel parameter number is known."""
+    param = register.get("param_number")
+    name = register["name"]
+    if param is not None:
+        return f"(P{param:02d}) {name}"
+    return name
+
+
 class SrneInverterEntity(CoordinatorEntity[SrneInverterCoordinator]):
     """Base entity for all SRNE inverter entities."""
 
@@ -31,7 +40,7 @@ class SrneInverterEntity(CoordinatorEntity[SrneInverterCoordinator]):
         super().__init__(coordinator)
         self._register = register
         self._attr_unique_id = f"{config_entry_id}_{register['key']}"
-        self._attr_name = register["name"]
+        self._attr_name = _build_entity_name(register)
         self._attr_attribution = register.get("note")
 
         self._attr_device_info = DeviceInfo(
