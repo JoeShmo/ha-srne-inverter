@@ -61,7 +61,7 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
         if self._default is not None:
             attrs["default_value"] = self._default
             current = self.native_value
-            if current is not None:
+            if current is not None and self.available:
                 attrs["changed_from_default"] = (
                     round(current, 6) != round(float(self._default), 6)
                 )

@@ -29,7 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 10   # seconds to establish TCP connection
 _OP_TIMEOUT = 8         # seconds per individual read/write operation
-_INTER_BLOCK_DELAY = 0.1  # seconds between block reads — avoids flooding ser2net
+_INTER_BLOCK_DELAY = 0.05  # 50ms quiet period after each response, per SRNE protocol requirement
 
 
 class SrneModbusError(Exception):

@@ -55,27 +55,35 @@ _MAX_CONSECUTIVE_FAILURES = 3
 
 
 def _build_read_blocks(registers: list[dict]) -> list[list[dict]]:
-    """Group registers into contiguous (or near-contiguous) block reads.
+    """Group registers into contiguous block reads.
 
-    Registers are sorted by address, then greedily grouped: a new register
-    joins the current block if it's adjacent to (or overlaps slightly with
-    rounding of) the previous register's end address, and the block hasn't
-    exceeded _MAX_BLOCK_SIZE registers of span. Otherwise it starts a new
-    block. This keeps each Modbus transaction to one contiguous address
-    range, which is what read_holding_registers actually requires — you
-    can't request two disjoint ranges in one call.
+    Registers marked single_read:True are always given their own block
+    (one Modbus transaction per register). All others are grouped greedily
+    into contiguous spans up to _MAX_BLOCK_SIZE.
     """
     if not registers:
         return []
 
     sorted_regs = sorted(registers, key=lambda r: r["address"])
     blocks: list[list[dict]] = []
-    current_block: list[dict] = [sorted_regs[0]]
-    block_start = sorted_regs[0]["address"]
+    current_block: list[dict] = []
+    block_start: int = 0
 
-    for reg in sorted_regs[1:]:
-        prev = current_block[-1]
-        prev_end = prev["address"] + prev["length"]
+    for reg in sorted_regs:
+        if reg.get("single_read"):
+            # Flush current block first, then emit this one alone
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
+            blocks.append([reg])
+            continue
+
+        if not current_block:
+            current_block = [reg]
+            block_start = reg["address"]
+            continue
+
+        prev_end = current_block[-1]["address"] + current_block[-1]["length"]
         span_if_added = (reg["address"] + reg["length"]) - block_start
 
         if reg["address"] <= prev_end and span_if_added <= _MAX_BLOCK_SIZE:
@@ -85,7 +93,9 @@ def _build_read_blocks(registers: list[dict]) -> list[list[dict]]:
             current_block = [reg]
             block_start = reg["address"]
 
-    blocks.append(current_block)
+    if current_block:
+        blocks.append(current_block)
+
     return blocks
 
 

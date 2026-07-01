@@ -63,7 +63,7 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
             default_label = self._options_map.get(int(self._default_raw))
             attrs["default_value"] = default_label
             current = self.current_option
-            if current is not None:
+            if current is not None and self.available:
                 attrs["changed_from_default"] = (current != default_label)
         return attrs
 
