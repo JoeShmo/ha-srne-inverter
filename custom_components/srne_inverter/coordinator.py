@@ -27,6 +27,7 @@ unknown registers in practice.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -147,68 +148,57 @@ class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._quarantined_keys
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Poll all readable registers, in contiguous blocks, and return {key: decoded_value}."""
+        """Poll all readable registers in contiguous blocks, one TCP session per cycle."""
+        try:
+            await self.client.async_connect()
+        except SrneModbusError as err:
+            raise UpdateFailed(f"Could not connect: {err}") from err
+
         data: dict[str, Any] = {}
         block_errors: list[str] = []
 
-        for block in self._read_blocks:
-            block_start = block[0]["address"]
-            block_end = block[-1]["address"] + block[-1]["length"]
-            block_span = block_end - block_start
-            block_keys = [r["key"] for r in block]
+        try:
+            for block in self._read_blocks:
+                block_start = block[0]["address"]
+                block_end = block[-1]["address"] + block[-1]["length"]
+                block_span = block_end - block_start
+                block_keys = [r["key"] for r in block]
 
-            try:
-                raw = await self.client.async_read_registers(block_start, block_span)
-                _LOGGER.debug(
-                    "Block read OK: 0x%04X-0x%04X (%d regs, keys=%s)",
-                    block_start,
-                    block_end,
-                    block_span,
-                    block_keys,
-                )
-            except SrneModbusError as err:
-                block_errors.append(
-                    f"block 0x{block_start:04X}-0x{block_end:04X} ({block_keys}): {err}"
-                )
-                _LOGGER.debug(
-                    "Block read FAILED: 0x%04X-0x%04X (%d regs, keys=%s): %s",
-                    block_start,
-                    block_end,
-                    block_span,
-                    block_keys,
-                    err,
-                )
-                for reg in block:
-                    self._note_failure(reg["key"])
-                continue
-
-            for reg in block:
-                offset = reg["address"] - block_start
-                reg_raw = raw[offset : offset + reg["length"]]
                 try:
-                    decoded = self.client.decode_value(reg_raw, reg["data_type"])
-                    data[reg["key"]] = decoded * reg.get("scale", 1)
-                    self._failure_counts[reg["key"]] = 0
-                except (ValueError, IndexError) as err:
-                    block_errors.append(f"{reg['key']}: decode failed: {err}")
-                    _LOGGER.debug("Decode failed for %s: %s", reg["key"], err)
-                    self._note_failure(reg["key"])
+                    raw = await self.client.async_read_registers(block_start, block_span)
+                    _LOGGER.debug("Block OK: 0x%04X-0x%04X keys=%s", block_start, block_end, block_keys)
+                except SrneModbusError as err:
+                    block_errors.append(f"block 0x{block_start:04X}-0x{block_end:04X}: {err}")
+                    _LOGGER.debug("Block FAIL: 0x%04X keys=%s: %s", block_start, block_keys, err)
+                    for reg in block:
+                        self._note_failure(reg["key"])
+                    continue
+
+                for reg in block:
+                    offset = reg["address"] - block_start
+                    reg_raw = raw[offset: offset + reg["length"]]
+                    try:
+                        decoded = self.client.decode_value(reg_raw, reg["data_type"])
+                        data[reg["key"]] = decoded * reg.get("scale", 1)
+                        self._failure_counts[reg["key"]] = 0
+                    except (ValueError, IndexError) as err:
+                        block_errors.append(f"{reg['key']}: decode error: {err}")
+                        self._note_failure(reg["key"])
+
+                await asyncio.sleep(self.client.inter_block_delay)
+
+        finally:
+            await self.client.async_close()
 
         if not data:
             raise UpdateFailed(
-                f"All register reads failed this cycle; "
-                f"{len(block_errors)} block error(s), first: "
-                f"{block_errors[0] if block_errors else 'unknown'}"
+                f"All reads failed; first error: {block_errors[0] if block_errors else 'unknown'}"
             )
         if block_errors:
-            _LOGGER.warning(
-                "%d of %d block(s) had errors this poll cycle: %s",
-                len(block_errors),
-                len(self._read_blocks),
-                "; ".join(block_errors[:5]),
-            )
+            _LOGGER.warning("%d block error(s): %s", len(block_errors), "; ".join(block_errors[:5]))
 
         return data
+
 
     def _note_failure(self, key: str) -> None:
         """Track a read/decode failure for one register key; quarantine if persistent."""
