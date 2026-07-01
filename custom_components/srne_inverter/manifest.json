@@ -1,7 +1,7 @@
 {
   "domain": "srne_inverter",
   "name": "SRNE Inverter",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "codeowners": [],
   "config_flow": true,
   "dependencies": [],
