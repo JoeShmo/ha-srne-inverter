@@ -1,19 +1,12 @@
 """Modbus transport wrapper.
 
-Wraps pymodbus AsyncModbusTcpClient with explicit connection lifecycle
-management. The key design choice: we close and reopen the TCP connection
-between every poll cycle rather than keeping a persistent connection alive.
+Wraps pymodbus AsyncModbusTcpClient with explicit per-cycle connection
+lifecycle management and a lock to prevent the two coordinators (telemetry
+and config) from overlapping on the shared connection.
 
-This is necessary because ser2net (the typical ser2net bridge used with this
-integration) drops idle connections and sends "Port was deleted\r\n" as an
-ASCII message when it does. pymodbus receives that as garbage RTU bytes,
-logs "unexpected data", and then enters a reconnect loop that floods ser2net
-with rapid reconnect attempts — causing the cascade of "Cancel send, because
-not connected" errors seen in practice.
-
-By controlling the connection lifecycle ourselves (connect → poll all blocks
-→ close), we ensure each poll cycle starts with a clean TCP session and
-ser2net never sees an idle connection worth dropping.
+Design: connect → poll all blocks → close, one TCP session per poll cycle.
+This prevents ser2net from seeing idle connections (which it drops with a
+"Port was deleted" ASCII message that corrupts pymodbus framing).
 """
 
 from __future__ import annotations
@@ -27,9 +20,9 @@ from pymodbus.exceptions import ModbusException
 
 _LOGGER = logging.getLogger(__name__)
 
-_CONNECT_TIMEOUT = 10   # seconds to establish TCP connection
-_OP_TIMEOUT = 8         # seconds per individual read/write operation
-_INTER_BLOCK_DELAY = 0.05  # 50ms quiet period after each response, per SRNE protocol requirement
+_CONNECT_TIMEOUT = 10
+_OP_TIMEOUT = 8
+_INTER_BLOCK_DELAY = 0.05  # 50ms quiet period between block reads
 
 
 class SrneModbusError(Exception):
@@ -37,7 +30,6 @@ class SrneModbusError(Exception):
 
 
 def _resolve_rtu_framer():
-    """Resolve the RTU framer argument for the installed pymodbus version."""
     try:
         from pymodbus import FramerType
         return FramerType.RTU
@@ -48,11 +40,16 @@ def _resolve_rtu_framer():
         return FramerType.RTU
     except ImportError:
         pass
+    try:
+        from pymodbus.framer.rtu_framer import ModbusRtuFramer
+        return ModbusRtuFramer
+    except ImportError:
+        pass
     return "rtu"
 
 
 class SrneModbusClient:
-    """Async Modbus client with explicit per-cycle connection management."""
+    """Async Modbus client with per-cycle connection management."""
 
     def __init__(self, host: str, port: int, slave_id: int, timeout: int = 5) -> None:
         self._host = host
@@ -60,50 +57,75 @@ class SrneModbusClient:
         self._slave_id = slave_id
         self._timeout = timeout
         self._client: AsyncModbusTcpClient | None = None
+        # Prevents telemetry and config coordinators from using the
+        # connection simultaneously if HA happens to schedule them at the
+        # same time. Lock acquired in async_connect, released in async_close.
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     def _make_client(self) -> AsyncModbusTcpClient:
-        return AsyncModbusTcpClient(
+        kwargs: dict = dict(
             host=self._host,
             port=self._port,
             timeout=self._timeout,
             framer=_resolve_rtu_framer(),
             retries=1,
-            reconnect_delay=0,
-            reconnect_delay_max=0,
         )
+        # reconnect_delay params don't exist in older pymodbus
+        try:
+            return AsyncModbusTcpClient(**kwargs, reconnect_delay=0, reconnect_delay_max=0)
+        except TypeError:
+            return AsyncModbusTcpClient(**kwargs)
 
     async def async_connect(self) -> None:
-        """Open a fresh TCP connection. Always creates a new client instance
-        so there's no state left over from a previous (possibly corrupt) session."""
-        await self.async_close()
-        self._client = self._make_client()
+        """Acquire lock and open a fresh TCP connection."""
+        await self._lock.acquire()
+        # If we fail to connect, release the lock so future attempts work
         try:
-            connected = await asyncio.wait_for(
-                self._client.connect(), timeout=_CONNECT_TIMEOUT
-            )
-        except asyncio.TimeoutError as err:
-            self._client = None
-            raise SrneModbusError(
-                f"Timed out connecting to {self._host}:{self._port}"
-            ) from err
-        if not connected or not self._client.connected:
-            self._client = None
-            raise SrneModbusError(
-                f"Could not connect to {self._host}:{self._port}"
-            )
-        _LOGGER.debug("Modbus TCP connected to %s:%s", self._host, self._port)
+            if self._client is not None:
+                try:
+                    self._client.close()
+                except Exception:
+                    pass
+                self._client = None
+
+            self._client = self._make_client()
+            try:
+                connected = await asyncio.wait_for(
+                    self._client.connect(), timeout=_CONNECT_TIMEOUT
+                )
+            except asyncio.TimeoutError as err:
+                self._client = None
+                self._lock.release()
+                raise SrneModbusError(
+                    f"Timed out connecting to {self._host}:{self._port}"
+                ) from err
+
+            if not connected or not self._client.connected:
+                self._client = None
+                self._lock.release()
+                raise SrneModbusError(
+                    f"Could not connect to {self._host}:{self._port}"
+                )
+            _LOGGER.debug("Connected to %s:%s", self._host, self._port)
+        except SrneModbusError:
+            raise
+        except Exception as err:
+            if self._lock.locked():
+                self._lock.release()
+            raise SrneModbusError(f"Unexpected connect error: {err}") from err
 
     async def async_close(self) -> None:
-        """Close and discard the current client instance."""
+        """Close connection and release the lock."""
         if self._client is not None:
             try:
                 self._client.close()
             except Exception:
                 pass
             self._client = None
+        if self._lock.locked():
+            self._lock.release()
 
     def _get_unit_kwarg(self) -> str:
-        """Detect whether this pymodbus expects device_id= or slave= at runtime."""
         import inspect
         if self._client is None:
             return "slave"
@@ -118,45 +140,42 @@ class SrneModbusClient:
         if self._client is None or not self._client.connected:
             raise SrneModbusError("Not connected")
         method = getattr(self._client, method_name)
-        kwarg_name = self._get_unit_kwarg()
-        kwargs[kwarg_name] = self._slave_id
+        kwargs[self._get_unit_kwarg()] = self._slave_id
         try:
             return await asyncio.wait_for(method(**kwargs), timeout=_OP_TIMEOUT)
         except asyncio.TimeoutError as err:
-            raise SrneModbusError(
-                f"Timed out waiting for response on {method_name}"
-            ) from err
+            raise SrneModbusError(f"Timeout on {method_name}") from err
 
     async def async_read_registers(self, address: int, count: int) -> list[int]:
-        """Read holding registers. Caller is responsible for ensuring connect() was called."""
         try:
             result = await self._call(
                 "read_holding_registers", address=address, count=count
             )
         except ModbusException as err:
-            raise SrneModbusError(
-                f"Read failed at 0x{address:04X} ({count} regs): {err}"
-            ) from err
+            raise SrneModbusError(f"Read failed at 0x{address:04X}: {err}") from err
         if result.isError():
-            raise SrneModbusError(
-                f"Device error reading 0x{address:04X} ({count} regs): {result}"
-            )
+            raise SrneModbusError(f"Device error at 0x{address:04X}: {result}")
         return list(result.registers)
 
     async def async_write_register(self, address: int, value: int) -> None:
-        """Write a single holding register. Connects if not already connected."""
+        """Write a register. Connects fresh if not already connected (for writes
+        initiated outside a poll cycle, e.g. from a UI control)."""
         if self._client is None or not self._client.connected:
             await self.async_connect()
+            try:
+                await self._do_write(address, value)
+            finally:
+                await self.async_close()
+        else:
+            await self._do_write(address, value)
+
+    async def _do_write(self, address: int, value: int) -> None:
         try:
             result = await self._call("write_register", address=address, value=value)
         except ModbusException as err:
-            raise SrneModbusError(
-                f"Write failed at 0x{address:04X} value={value}: {err}"
-            ) from err
+            raise SrneModbusError(f"Write failed at 0x{address:04X}: {err}") from err
         if result.isError():
-            raise SrneModbusError(
-                f"Device error writing 0x{address:04X} value={value}: {result}"
-            )
+            raise SrneModbusError(f"Device error writing 0x{address:04X}: {result}")
 
     @property
     def inter_block_delay(self) -> float:
