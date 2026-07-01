@@ -1,28 +1,22 @@
-"""DataUpdateCoordinator for the SRNE Inverter integration.
+"""Coordinators for the SRNE Inverter integration.
 
-Polls every readable register defined in the active profile on each update
-interval, and exposes a single async_write_value() entry point that all
-writable entities (number/select) call through. Range validation against
-the profile's min_value/max_value lives here, as a second guard behind
-whatever bounds the entity itself enforces in the HA UI — so a write can't
-slip through some other path (e.g. a service call) without being checked.
+Two separate DataUpdateCoordinator instances:
 
-Reads are grouped into contiguous block reads (one Modbus transaction
-covering a run of adjacent registers) rather than one transaction per
-register. The original per-register implementation issued 50+ separate
-round-trips per poll cycle; on a real RTU-over-TCP link with retries, that
-adds up to minutes per cycle and looks like a stuck "Initializing" state.
-The wills106/homeassistant-solax-modbus SRNE plugin — independently
-confirmed to talk to this same hardware reliably — uses block reads
-(block_size=100) for exactly this reason.
+  SrneTelemetryCoordinator  — polls 0x01xx/0x02xx registers every 30s.
+    These are volatile RAM values (PV power, battery V/I, temperatures,
+    fault codes) that change continuously and are safe to read rapidly.
 
-Registers that consistently fail are "quarantined": after
-_MAX_CONSECUTIVE_FAILURES failed attempts, a register is excluded from
-future block-read ranges (it still appears as a candidate, just skipped)
-so one bad/unsupported address doesn't repeatedly poison reads of its
-neighbors. This mirrors the behavior of solax_modbus's
-auto_block_ignore_readerror, which the user observed quarantining two
-unknown registers in practice.
+  SrneConfigCoordinator     — polls 0xE0xx/0xE2xx registers every 3600s
+    (also on startup). These are NVRAM/flash-backed settings that rarely
+    change. E2xx registers are read one at a time (single_read:True in the
+    profile) because some firmware versions reject multi-register reads of
+    that block. If they fail, those keys are simply absent from coordinator
+    data so HA shows "Unknown" — never a stale default.
+
+Both coordinators share one SrneModbusClient but do NOT overlap in time
+(HA's coordinator scheduling is single-threaded per event loop). Each
+poll cycle opens a fresh TCP connection and closes it when done, so
+ser2net never sees an idle connection to drop.
 """
 
 from __future__ import annotations
@@ -39,27 +33,18 @@ from .modbus_client import SrneModbusClient, SrneModbusError
 
 _LOGGER = logging.getLogger(__name__)
 
-# Maximum number of registers to request in a single Modbus transaction.
-# The SRNE protocol doc states up to 20 registers can be read at once;
-# kept deliberately below that documented ceiling rather than at it, since
-# "the doc says 20 works" and "this specific firmware/bridge actually
-# accepts 20 reliably" are different claims, and erring smaller costs
-# little (more transactions) versus erring larger (more retries/quarantine
-# churn from a request the device silently can't fulfill).
 _MAX_BLOCK_SIZE = 16
-
-# After this many consecutive failures, stop attempting to read a register
-# until the integration reloads. Prevents one bad address from repeatedly
-# breaking the block read that contains it.
 _MAX_CONSECUTIVE_FAILURES = 3
+
+TELEMETRY_SCAN_INTERVAL = 30   # seconds
+CONFIG_SCAN_INTERVAL = 3600    # seconds
 
 
 def _build_read_blocks(registers: list[dict]) -> list[list[dict]]:
     """Group registers into contiguous block reads.
 
-    Registers marked single_read:True are always given their own block
-    (one Modbus transaction per register). All others are grouped greedily
-    into contiguous spans up to _MAX_BLOCK_SIZE.
+    Registers with single_read:True get their own block of exactly 1.
+    All others are grouped greedily into contiguous spans up to _MAX_BLOCK_SIZE.
     """
     if not registers:
         return []
@@ -71,7 +56,6 @@ def _build_read_blocks(registers: list[dict]) -> list[list[dict]]:
 
     for reg in sorted_regs:
         if reg.get("single_read"):
-            # Flush current block first, then emit this one alone
             if current_block:
                 blocks.append(current_block)
                 current_block = []
@@ -100,65 +84,50 @@ def _build_read_blocks(registers: list[dict]) -> list[list[dict]]:
 
 
 class SrneWriteValidationError(Exception):
-    """Raised when a requested write value falls outside the register's allowed range."""
+    """Raised when a write value is outside the register's allowed range."""
 
 
-class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Coordinates Modbus polling for one SRNE inverter/charger."""
+class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Shared base for both coordinators."""
 
     def __init__(
         self,
         hass: HomeAssistant,
         client: SrneModbusClient,
         profile,
+        name: str,
         scan_interval: int,
+        register_filter,
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
-            name="srne_inverter",
+            name=name,
             update_interval=timedelta(seconds=scan_interval),
         )
         self.client = client
         self.profile = profile
-        # Registers with poll:False are excluded from the regular poll cycle.
-        # This covers E2xx inverter-config registers that many SRNE firmware
-        # versions return permission errors on when read repeatedly, causing
-        # the retry loop symptom. Those entities still exist and can be written
-        # to; they just won't show a current value until the device volunteers it.
-        self._all_readable_registers = [
-            r for r in profile.REGISTERS
-            if r["access"] in ("r", "rw") and r.get("poll", True)
-        ]
-        # key -> consecutive failure count. Once a key hits
-        # _MAX_CONSECUTIVE_FAILURES it's excluded from _active_registers
-        # (quarantined) until reload.
         self._failure_counts: dict[str, int] = {}
         self._quarantined_keys: set[str] = set()
+        self._all_registers = [
+            r for r in profile.REGISTERS
+            if r["access"] in ("r", "rw") and register_filter(r)
+        ]
         self._rebuild_blocks()
 
     def _rebuild_blocks(self) -> None:
-        """Recompute read blocks from the currently non-quarantined registers."""
-        active = [
-            r
-            for r in self._all_readable_registers
-            if r["key"] not in self._quarantined_keys
-        ]
+        active = [r for r in self._all_registers if r["key"] not in self._quarantined_keys]
         self._read_blocks = _build_read_blocks(active)
         _LOGGER.debug(
-            "Rebuilt read plan: %d registers across %d block(s) (%d quarantined)",
-            len(active),
-            len(self._read_blocks),
-            len(self._quarantined_keys),
+            "%s: %d registers, %d blocks, %d quarantined",
+            self.name, len(active), len(self._read_blocks), len(self._quarantined_keys),
         )
 
     @property
     def quarantined_keys(self) -> set[str]:
-        """Register keys that have been excluded after repeated read failures."""
         return self._quarantined_keys
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Poll all readable registers in contiguous blocks, one TCP session per cycle."""
         try:
             await self.client.async_connect()
         except SrneModbusError as err:
@@ -176,12 +145,13 @@ class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 try:
                     raw = await self.client.async_read_registers(block_start, block_span)
-                    _LOGGER.debug("Block OK: 0x%04X-0x%04X keys=%s", block_start, block_end, block_keys)
+                    _LOGGER.debug("Block OK: 0x%04X keys=%s", block_start, block_keys)
                 except SrneModbusError as err:
-                    block_errors.append(f"block 0x{block_start:04X}-0x{block_end:04X}: {err}")
-                    _LOGGER.debug("Block FAIL: 0x%04X keys=%s: %s", block_start, block_keys, err)
+                    block_errors.append(f"0x{block_start:04X}: {err}")
+                    _LOGGER.debug("Block FAIL: 0x%04X keys=%s err=%s", block_start, block_keys, err)
                     for reg in block:
                         self._note_failure(reg["key"])
+                    await asyncio.sleep(self.client.inter_block_delay)
                     continue
 
                 for reg in block:
@@ -192,7 +162,7 @@ class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         data[reg["key"]] = decoded * reg.get("scale", 1)
                         self._failure_counts[reg["key"]] = 0
                     except (ValueError, IndexError) as err:
-                        block_errors.append(f"{reg['key']}: decode error: {err}")
+                        block_errors.append(f"{reg['key']}: decode: {err}")
                         self._note_failure(reg["key"])
 
                 await asyncio.sleep(self.client.inter_block_delay)
@@ -200,39 +170,25 @@ class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         finally:
             await self.client.async_close()
 
-        if not data:
+        if not data and self._read_blocks:
             raise UpdateFailed(
-                f"All reads failed; first error: {block_errors[0] if block_errors else 'unknown'}"
+                f"All reads failed; errors: {'; '.join(block_errors[:3])}"
             )
         if block_errors:
-            _LOGGER.warning("%d block error(s): %s", len(block_errors), "; ".join(block_errors[:5]))
+            _LOGGER.warning("%s: %d block error(s): %s", self.name, len(block_errors), "; ".join(block_errors[:5]))
 
         return data
 
-
     def _note_failure(self, key: str) -> None:
-        """Track a read/decode failure for one register key; quarantine if persistent."""
         count = self._failure_counts.get(key, 0) + 1
         self._failure_counts[key] = count
         if count >= _MAX_CONSECUTIVE_FAILURES and key not in self._quarantined_keys:
             self._quarantined_keys.add(key)
-            _LOGGER.warning(
-                "Register '%s' failed %d consecutive times — quarantining it "
-                "(excluding from future reads until integration reload). "
-                "If this is a register you need, check Settings > Devices & "
-                "Services > SRNE Inverter > Diagnostics for details, or "
-                "reload the integration to retry it.",
-                key,
-                count,
-            )
+            _LOGGER.warning("Register '%s' quarantined after %d failures", key, count)
             self._rebuild_blocks()
 
     async def async_write_value(self, key: str, real_value: float) -> None:
-        """Validate and write a real-world value to the register identified by key.
-
-        Raises SrneWriteValidationError if out of range, or SrneModbusError
-        if the write itself fails at the transport/device level.
-        """
+        """Validate and write a value; reconnects if needed for writes."""
         reg = next((r for r in self.profile.REGISTERS if r["key"] == key), None)
         if reg is None:
             raise SrneWriteValidationError(f"Unknown register key: {key}")
@@ -242,35 +198,49 @@ class SrneInverterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         min_v = reg.get("min_value")
         max_v = reg.get("max_value")
         if min_v is not None and real_value < min_v:
-            raise SrneWriteValidationError(
-                f"{reg['name']}: {real_value} is below minimum {min_v}"
-            )
+            raise SrneWriteValidationError(f"{reg['name']}: {real_value} below minimum {min_v}")
         if max_v is not None and real_value > max_v:
-            raise SrneWriteValidationError(
-                f"{reg['name']}: {real_value} is above maximum {max_v}"
-            )
+            raise SrneWriteValidationError(f"{reg['name']}: {real_value} above maximum {max_v}")
         if "options" in reg and int(real_value) not in reg["options"]:
-            raise SrneWriteValidationError(
-                f"{reg['name']}: {real_value} is not a valid option"
-            )
+            raise SrneWriteValidationError(f"{reg['name']}: {real_value} not a valid option")
 
         scale = reg.get("scale", 1)
         raw_value = round(real_value / scale)
         encoded = self.client.encode_value(raw_value, reg["data_type"])
+        if len(encoded) != 1:
+            raise SrneWriteValidationError(f"{reg['name']}: multi-register writes not implemented")
 
-        if len(encoded) == 1:
-            await self.client.async_write_register(reg["address"], encoded[0])
-        else:
-            # Multi-register writes aren't needed by any current profile
-            # entries (all rw registers here are single-word), but guarded
-            # explicitly so a future 32-bit writable register doesn't
-            # silently write only the first word.
-            raise SrneWriteValidationError(
-                f"{reg['name']}: multi-register writes not yet implemented"
-            )
+        await self.client.async_write_register(reg["address"], encoded[0])
 
-        # Optimistically update local cache so the UI reflects the change
-        # immediately rather than waiting for the next poll interval.
+        # Optimistically update local cache
         if self.data is not None:
             self.data[key] = real_value
             self.async_set_updated_data(self.data)
+
+
+class SrneTelemetryCoordinator(_SrneBaseCoordinator):
+    """Polls 0x01xx/0x02xx telemetry registers every 30 seconds."""
+
+    def __init__(self, hass, client, profile, scan_interval=TELEMETRY_SCAN_INTERVAL):
+        super().__init__(
+            hass, client, profile,
+            name="srne_telemetry",
+            scan_interval=scan_interval,
+            register_filter=lambda r: r["address"] < 0x1000,
+        )
+
+
+class SrneConfigCoordinator(_SrneBaseCoordinator):
+    """Polls E0xx/E2xx config registers every hour (also on startup)."""
+
+    def __init__(self, hass, client, profile, scan_interval=CONFIG_SCAN_INTERVAL):
+        super().__init__(
+            hass, client, profile,
+            name="srne_config",
+            scan_interval=scan_interval,
+            register_filter=lambda r: r["address"] >= 0xE000,
+        )
+
+
+# Keep a combined coordinator alias used by the quarantine sensor
+SrneInverterCoordinator = SrneTelemetryCoordinator

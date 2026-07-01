@@ -1,10 +1,4 @@
-"""Shared entity base class.
-
-Every entity (sensor, number, select) descends from SrneInverterEntity so
-they all attach to the same DeviceInfo — this is what makes them show up
-grouped under one Device page in Settings > Devices & Services, rather than
-as a scattered flat entity list.
-"""
+"""Shared entity base class."""
 
 from __future__ import annotations
 
@@ -12,11 +6,10 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, MANUFACTURER
-from .coordinator import SrneInverterCoordinator
+from .coordinator import _SrneBaseCoordinator
 
 
 def _build_entity_name(register: dict) -> str:
-    """Prefix the register name with (P##) when a front-panel parameter number is known."""
     param = register.get("param_number")
     name = register["name"]
     if param is not None:
@@ -24,14 +17,14 @@ def _build_entity_name(register: dict) -> str:
     return name
 
 
-class SrneInverterEntity(CoordinatorEntity[SrneInverterCoordinator]):
+class SrneInverterEntity(CoordinatorEntity[_SrneBaseCoordinator]):
     """Base entity for all SRNE inverter entities."""
 
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: SrneInverterCoordinator,
+        coordinator: _SrneBaseCoordinator,
         register: dict,
         config_entry_id: str,
         device_model: str,
@@ -42,7 +35,6 @@ class SrneInverterEntity(CoordinatorEntity[SrneInverterCoordinator]):
         self._attr_unique_id = f"{config_entry_id}_{register['key']}"
         self._attr_name = _build_entity_name(register)
         self._attr_attribution = register.get("note")
-
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry_id)},
             manufacturer=MANUFACTURER,
@@ -52,7 +44,6 @@ class SrneInverterEntity(CoordinatorEntity[SrneInverterCoordinator]):
 
     @property
     def available(self) -> bool:
-        """An entity is available if the coordinator has a value for its key."""
         return (
             super().available
             and self.coordinator.data is not None

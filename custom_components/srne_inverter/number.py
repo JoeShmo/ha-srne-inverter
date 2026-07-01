@@ -1,4 +1,4 @@
-"""Number platform for the SRNE Inverter integration."""
+"""Number platform — writable numeric config entities."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_MODEL_NAME, DOMAIN
-from .coordinator import SrneInverterCoordinator, SrneWriteValidationError
+from .coordinator import SrneWriteValidationError
 from .entity import SrneInverterEntity
 from .modbus_client import SrneModbusError
 
@@ -19,16 +19,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator: SrneInverterCoordinator = hass.data[DOMAIN][entry.entry_id]
-    profile = coordinator.profile
+    data = hass.data[DOMAIN][entry.entry_id]
+    config_coord = data["config"]
+    profile = config_coord.profile
     device_name = entry.title or DEFAULT_MODEL_NAME
 
     entities = [
-        SrneNumber(coordinator, reg, entry.entry_id, DEFAULT_MODEL_NAME, device_name)
+        SrneNumber(config_coord, reg, entry.entry_id, DEFAULT_MODEL_NAME, device_name)
         for reg in profile.REGISTERS
         if reg["entity"] == "number"
     ]
@@ -36,8 +35,6 @@ async def async_setup_entry(
 
 
 class SrneNumber(SrneInverterEntity, NumberEntity):
-    """A writable numeric config entity backed by one profile register."""
-
     _attr_mode = NumberMode.BOX
 
     def __init__(self, coordinator, register, config_entry_id, device_model, device_name):
@@ -51,7 +48,7 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
 
     @property
     def native_value(self):
-        if self.coordinator.data is None:
+        if not self.available:
             return None
         return self.coordinator.data.get(self._register["key"])
 
@@ -73,6 +70,4 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
         except SrneWriteValidationError as err:
             raise HomeAssistantError(str(err)) from err
         except SrneModbusError as err:
-            raise HomeAssistantError(
-                f"Failed to write {self._register['name']}: {err}"
-            ) from err
+            raise HomeAssistantError(f"Write failed: {err}") from err

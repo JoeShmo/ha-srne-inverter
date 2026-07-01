@@ -1,4 +1,4 @@
-"""Select platform for the SRNE Inverter integration."""
+"""Select platform — writable enum config entities."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_MODEL_NAME, DOMAIN
-from .coordinator import SrneInverterCoordinator, SrneWriteValidationError
+from .coordinator import SrneWriteValidationError
 from .entity import SrneInverterEntity
 from .modbus_client import SrneModbusError
 
@@ -19,16 +19,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator: SrneInverterCoordinator = hass.data[DOMAIN][entry.entry_id]
-    profile = coordinator.profile
+    data = hass.data[DOMAIN][entry.entry_id]
+    config_coord = data["config"]
+    profile = config_coord.profile
     device_name = entry.title or DEFAULT_MODEL_NAME
 
     entities = [
-        SrneSelect(coordinator, reg, entry.entry_id, DEFAULT_MODEL_NAME, device_name)
+        SrneSelect(config_coord, reg, entry.entry_id, DEFAULT_MODEL_NAME, device_name)
         for reg in profile.REGISTERS
         if reg["entity"] == "select"
     ]
@@ -36,8 +35,6 @@ async def async_setup_entry(
 
 
 class SrneSelect(SrneInverterEntity, SelectEntity):
-    """A writable enum config entity backed by one profile register."""
-
     def __init__(self, coordinator, register, config_entry_id, device_model, device_name):
         super().__init__(coordinator, register, config_entry_id, device_model, device_name)
         self._options_map: dict[int, str] = register["options"]
@@ -47,9 +44,7 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        if self.coordinator.data is None:
-            return None
-        if self._register["key"] not in self.coordinator.data:
+        if not self.available:
             return None
         raw = self.coordinator.data.get(self._register["key"])
         if raw is None:
@@ -76,6 +71,4 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
         except SrneWriteValidationError as err:
             raise HomeAssistantError(str(err)) from err
         except SrneModbusError as err:
-            raise HomeAssistantError(
-                f"Failed to write {self._register['name']}: {err}"
-            ) from err
+            raise HomeAssistantError(f"Write failed: {err}") from err
