@@ -118,9 +118,10 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _rebuild_blocks(self) -> None:
         active = [r for r in self._all_registers if r["key"] not in self._quarantined_keys]
         self._read_blocks = _build_read_blocks(active)
-        _LOGGER.debug(
-            "%s: %d registers, %d blocks, %d quarantined",
+        _LOGGER.error(
+            "SRNE %s: poll plan = %d registers, %d blocks, %d quarantined. Blocks: %s",
             self.name, len(active), len(self._read_blocks), len(self._quarantined_keys),
+            [(f"0x{b[0]['address']:04X}", len(b)) for b in self._read_blocks],
         )
 
     @property
@@ -128,9 +129,11 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._quarantined_keys
 
     async def _async_update_data(self) -> dict[str, Any]:
+        _LOGGER.error("SRNE %s: starting poll (%d blocks)", self.name, len(self._read_blocks))
         try:
             await self.client.async_connect()
         except SrneModbusError as err:
+            _LOGGER.error("SRNE %s: connect failed: %s", self.name, err)
             raise UpdateFailed(f"Could not connect: {err}") from err
 
         data: dict[str, Any] = {}
@@ -148,7 +151,7 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     _LOGGER.debug("Block OK: 0x%04X keys=%s", block_start, block_keys)
                 except SrneModbusError as err:
                     block_errors.append(f"0x{block_start:04X}: {err}")
-                    _LOGGER.debug("Block FAIL: 0x%04X keys=%s err=%s", block_start, block_keys, err)
+                    _LOGGER.error("SRNE block FAIL 0x%04X keys=%s: %s", block_start, block_keys, err)
                     for reg in block:
                         self._note_failure(reg["key"])
                     await asyncio.sleep(self.client.inter_block_delay)
