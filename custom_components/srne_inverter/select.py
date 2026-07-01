@@ -1,4 +1,4 @@
-"""Select platform — writable enum config entities."""
+"""Select platform for the SRNE Inverter integration."""
 
 from __future__ import annotations
 
@@ -12,10 +12,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_MODEL_NAME, DOMAIN
 from .coordinator import SrneWriteValidationError
-from .entity import SrneInverterEntity, _build_entity_name
+from .entity import SrneInverterEntity
 from .modbus_client import SrneModbusError
 
 _LOGGER = logging.getLogger(__name__)
+
+_ICON_DEFAULT = None
+_ICON_MODIFIED = "mdi:pencil-circle"
 
 
 async def async_setup_entry(
@@ -29,12 +32,14 @@ async def async_setup_entry(
     entities = [
         SrneSelect(config_coord, reg, entry.entry_id, DEFAULT_MODEL_NAME, device_name)
         for reg in profile.REGISTERS
-        if reg["entity"] == "select"
+        if reg["entity"] == "select" and reg.get("param_number") is not None
     ]
     async_add_entities(entities)
 
 
 class SrneSelect(SrneInverterEntity, SelectEntity):
+    """A writable enum config entity."""
+
     def __init__(self, coordinator, register, config_entry_id, device_model, device_name):
         super().__init__(coordinator, register, config_entry_id, device_model, device_name)
         self._options_map: dict[int, str] = register["options"]
@@ -43,13 +48,16 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
         self._default_raw = register.get("default")
 
     @property
-    def name(self) -> str:
-        changed = False
-        if self._default_raw is not None and self.available:
-            current = self.coordinator.data.get(self._register["key"])
-            if current is not None:
-                changed = int(current) != int(self._default_raw)
-        return _build_entity_name(self._register, changed)
+    def icon(self) -> str | None:
+        """Show pencil icon when value differs from factory default."""
+        if self._default_raw is None or not self.available:
+            return _ICON_DEFAULT
+        current = self.coordinator.data.get(self._register["key"])
+        if current is None:
+            return _ICON_DEFAULT
+        if int(current) != int(self._default_raw):
+            return _ICON_MODIFIED
+        return _ICON_DEFAULT
 
     @property
     def current_option(self) -> str | None:

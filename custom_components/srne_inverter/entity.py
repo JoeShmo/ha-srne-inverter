@@ -9,12 +9,11 @@ from .const import DOMAIN, MANUFACTURER
 from .coordinator import _SrneBaseCoordinator
 
 
-def _build_entity_name(register: dict, changed: bool = False) -> str:
-    """Build the display name, optionally prefixed with * if non-default."""
+def _build_entity_name(register: dict) -> str:
+    """Build the display name. Always static — never changes after entity creation."""
     param = register.get("param_number")
     name = register["name"]
-    base = f"({param:02d}) {name}" if param is not None else name
-    return f"* {base}" if changed else base
+    return f"({param:02d}) {name}" if param is not None else name
 
 
 class SrneInverterEntity(CoordinatorEntity[_SrneBaseCoordinator]):

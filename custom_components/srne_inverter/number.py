@@ -1,4 +1,4 @@
-"""Number platform — writable numeric config entities."""
+"""Number platform for the SRNE Inverter integration."""
 
 from __future__ import annotations
 
@@ -12,10 +12,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_MODEL_NAME, DOMAIN
 from .coordinator import SrneWriteValidationError
-from .entity import SrneInverterEntity, _build_entity_name
+from .entity import SrneInverterEntity
 from .modbus_client import SrneModbusError
 
 _LOGGER = logging.getLogger(__name__)
+
+_ICON_DEFAULT = None          # use platform default
+_ICON_MODIFIED = "mdi:pencil-circle"
 
 
 async def async_setup_entry(
@@ -29,12 +32,14 @@ async def async_setup_entry(
     entities = [
         SrneNumber(config_coord, reg, entry.entry_id, DEFAULT_MODEL_NAME, device_name)
         for reg in profile.REGISTERS
-        if reg["entity"] == "number"
+        if reg["entity"] == "number" and reg.get("param_number") is not None
     ]
     async_add_entities(entities)
 
 
 class SrneNumber(SrneInverterEntity, NumberEntity):
+    """A writable numeric config entity."""
+
     _attr_mode = NumberMode.BOX
 
     def __init__(self, coordinator, register, config_entry_id, device_model, device_name):
@@ -47,13 +52,16 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
         self._default = register.get("default")
 
     @property
-    def name(self) -> str:
-        changed = False
-        if self._default is not None and self.available:
-            current = self.coordinator.data.get(self._register["key"])
-            if current is not None:
-                changed = round(current, 6) != round(float(self._default), 6)
-        return _build_entity_name(self._register, changed)
+    def icon(self) -> str | None:
+        """Show pencil icon when value differs from factory default."""
+        if self._default is None or not self.available:
+            return _ICON_DEFAULT
+        current = self.coordinator.data.get(self._register["key"])
+        if current is None:
+            return _ICON_DEFAULT
+        if round(current, 6) != round(float(self._default), 6):
+            return _ICON_MODIFIED
+        return _ICON_DEFAULT
 
     @property
     def native_value(self):
