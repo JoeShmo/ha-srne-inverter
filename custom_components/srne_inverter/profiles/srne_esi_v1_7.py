@@ -413,6 +413,85 @@ REGISTERS: list[dict] = [
     },
 
     # ===================================================================
+    # PRODUCT INFO — read-only (0x000B–0x0020 block)
+    # Confirmed via probe: reads 000B 22
+    # ===================================================================
+
+    {
+        "key": "machine_type_code",
+        "single_read": True,
+        "name": "Machine Type Code",
+        "address": 0x000B,
+        "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
+        "scale": 1, "unit": None, "device_class": None,
+        "param_number": None, "default": None,
+        "category": "telemetry",
+        "enabled_by_default": False,
+        "note": "03=Inverter, 04=Integrated inverter/controller. Your unit returns 4.",
+    },
+    {
+        "key": "cpu1_sw_version",
+        "single_read": True,
+        "name": "CPU1 Software Version",
+        "address": 0x0014,
+        "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
+        "scale": 1, "unit": None, "device_class": None,
+        "param_number": None, "default": None,
+        "category": "telemetry",
+        "enabled_by_default": False,
+        "note": "Firmware version of CPU1. Raw value e.g. 231 = V2.31.",
+    },
+    {
+        "key": "cpu2_sw_version",
+        "single_read": True,
+        "name": "CPU2 Software Version",
+        "address": 0x0015,
+        "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
+        "scale": 1, "unit": None, "device_class": None,
+        "param_number": None, "default": None,
+        "category": "telemetry",
+        "enabled_by_default": False,
+        "note": "Firmware version of CPU2. Raw value e.g. 201 = V2.01.",
+    },
+    {
+        "key": "hw_version_control",
+        "single_read": True,
+        "name": "Control Board Hardware Version",
+        "address": 0x0016,
+        "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
+        "scale": 1, "unit": None, "device_class": None,
+        "param_number": None, "default": None,
+        "category": "telemetry",
+        "enabled_by_default": False,
+        "note": "Hardware version of control board. Raw value e.g. 200 = V2.00.",
+    },
+    {
+        "key": "model_code",
+        "single_read": True,
+        "name": "Model Code",
+        "address": 0x001B,
+        "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
+        "scale": 1, "unit": None, "device_class": None,
+        "param_number": None, "default": None,
+        "category": "telemetry",
+        "enabled_by_default": False,
+        "note": "Manufacturer model code. Your unit returns 34 (0x22).",
+    },
+    {
+        "key": "protocol_version",
+        "single_read": True,
+        "name": "RS485 Protocol Version",
+        "address": 0x001C,
+        "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
+        "scale": 1, "unit": None, "device_class": None,
+        "param_number": None, "default": None,
+        "category": "telemetry",
+        "enabled_by_default": False,
+        "note": "Modbus protocol version implemented by this firmware. "
+                "Raw value e.g. 107 = V1.07.",
+    },
+
+    # ===================================================================
     # BATTERY CONFIG — writable (0xE0xx block)
     # ===================================================================
 
@@ -674,11 +753,31 @@ REGISTERS: list[dict] = [
     # timbit123/srne-modbus (mqtt_topic_config.py) against real SRNE hardware.
     # The V1.7 protocol doc E20x addresses are factory mirror/shadow registers;
     # active runtime settings live at different offsets confirmed below.
+    # ALL addresses in this section verified via live probe (change on panel,
+    # observe which register changes). V1.7 doc cross-referenced for options/scales.
     # ===================================================================
 
     {
-        "key": "charge_source_priority",
-        "name": "Charging Source Priority",
+        "key": "output_priority",
+        "name": "Output Priority",
+        "address": 0xE204,
+        "single_read": True,
+        "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
+        "scale": 1, "unit": None, "device_class": None,
+        "options": {
+            0: "Solar (PV First)",
+            1: "Line (Utility First)",
+            2: "SBU (Solar-Battery-Utility)",
+        },
+        "param_number": 1, "default": 0,
+        "category": "inverter_config",
+        "note": "What powers the loads: Solar First / Utility First / SBU. "
+                "Address 0xE204 confirmed via probe (AC1ST=1, PV1ST=0). "
+                "V1.7 doc: E204 Output priority, 0=solar 1=line 2=SBU.",
+    },
+    {
+        "key": "charge_priority",
+        "name": "Charging Mode / Charge Priority",
         "address": 0xE20F,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "select",
@@ -686,14 +785,14 @@ REGISTERS: list[dict] = [
         "options": {
             0: "Solar First",
             1: "Utility First",
-            2: "Solar and Utility Simultaneously",
-            3: "Solar Only",
+            2: "Solar and Utility (Hybrid)",
+            3: "Solar Only (PV Only)",
         },
-        "param_number": None, "default": None,
+        "param_number": 6, "default": 3,
         "category": "inverter_config",
-        "note": "How the battery is charged: Solar First / Utility First / Both / Solar Only. "
-                "Address 0xE20F confirmed (scan=3=Solar Only). timbit123: ChgSourcePriority. "
-                "Note: this is CHARGE source priority, not output priority (what powers loads).",
+        "note": "How the battery is charged. Address 0xE20F confirmed via probe "
+                "(Hybrid=2, SolarOnly=3). Options 0 and 1 exist per V1.7 doc but "
+                "your panel firmware only exposes 2 and 3. V1.7 doc: E20F Charge priority.",
     },
     {
         "key": "max_charge_current",
@@ -702,11 +801,11 @@ REGISTERS: list[dict] = [
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "number",
         "scale": 0.1, "unit": "A", "device_class": "current",
-        "min_value": 0, "max_value": 100, "step": 0.1,
-        "param_number": 7, "default": 60,
+        "min_value": 0, "max_value": 150, "step": 0.1,
+        "param_number": 7, "default": 80,
         "category": "inverter_config",
         "note": "Parameter [07]: Max total charging current (PV + mains combined). "
-                "Scale 0.1 confirmed (raw=200→20.0A). timbit123: MaxChgCurr.",
+                "Scale 0.1 per V1.7 doc (raw=200→20.0A). Default 80A per doc.",
     },
     {
         "key": "mains_charge_current_limit",
@@ -714,12 +813,14 @@ REGISTERS: list[dict] = [
         "address": 0xE205,
         "single_read": True,
         "length": 1, "data_type": "uint16", "access": "rw", "entity": "number",
-        "scale": 1, "unit": "A", "device_class": "current",
-        "min_value": 0, "max_value": 60, "step": 1,
-        "param_number": 28, "default": 60,
+        "scale": 0.1, "unit": "A", "device_class": "current",
+        "min_value": 0, "max_value": 100, "step": 0.1,
+        "param_number": 28, "default": 80,
         "category": "inverter_config",
-        "note": "Parameter [28]: Max grid charge current. "
-                "Confirmed (raw=20=20A). timbit123: GridChgCurrLimit.",
+        "note": "Parameter [28]: Max grid charge current limit. "
+                "Scale 0.1 per V1.7 doc (raw=20→2.0A). Default 80A per doc. "
+                "Panel may show 0 when Solar Only charge mode is active "
+                "(register retains last value but grid charging is suppressed).",
     },
     {
         "key": "ac_input_range",

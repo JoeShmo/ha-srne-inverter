@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_MODEL_NAME, DOMAIN
 from .coordinator import SrneWriteValidationError
-from .entity import SrneInverterEntity
+from .entity import SrneInverterEntity, _build_entity_name
 from .modbus_client import SrneModbusError
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +45,15 @@ class SrneNumber(SrneInverterEntity, NumberEntity):
         self._attr_native_max_value = register.get("max_value", 65535)
         self._attr_native_step = register.get("step", 1)
         self._default = register.get("default")
+
+    @property
+    def name(self) -> str:
+        changed = False
+        if self._default is not None and self.available:
+            current = self.coordinator.data.get(self._register["key"])
+            if current is not None:
+                changed = round(current, 6) != round(float(self._default), 6)
+        return _build_entity_name(self._register, changed)
 
     @property
     def native_value(self):

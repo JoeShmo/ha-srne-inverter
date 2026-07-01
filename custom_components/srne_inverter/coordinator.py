@@ -33,7 +33,7 @@ from .modbus_client import SrneModbusClient, SrneModbusError
 
 _LOGGER = logging.getLogger(__name__)
 
-_MAX_BLOCK_SIZE = 16
+_MAX_BLOCK_SIZE = 30   # SRNE protocol hard limit is 32; stay under with margin
 _MAX_CONSECUTIVE_FAILURES = 3
 
 TELEMETRY_SCAN_INTERVAL = 30   # seconds
@@ -129,11 +129,11 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._quarantined_keys
 
     async def _async_update_data(self) -> dict[str, Any]:
-        _LOGGER.error("SRNE %s: starting poll (%d blocks)", self.name, len(self._read_blocks))
+        _LOGGER.debug("SRNE %s: starting poll (%d blocks)", self.name, len(self._read_blocks))
         try:
             await self.client.async_connect()
         except SrneModbusError as err:
-            _LOGGER.error("SRNE %s: connect failed: %s", self.name, err)
+            _LOGGER.warning("SRNE %s: connect failed: %s", self.name, err)
             raise UpdateFailed(f"Could not connect: {err}") from err
 
         data: dict[str, Any] = {}
@@ -151,7 +151,7 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     _LOGGER.debug("Block OK: 0x%04X keys=%s", block_start, block_keys)
                 except SrneModbusError as err:
                     block_errors.append(f"0x{block_start:04X}: {err}")
-                    _LOGGER.error("SRNE block FAIL 0x%04X keys=%s: %s", block_start, block_keys, err)
+                    _LOGGER.warning("SRNE block FAIL 0x%04X keys=%s: %s", block_start, block_keys, err)
                     for reg in block:
                         self._note_failure(reg["key"])
                     await asyncio.sleep(self.client.inter_block_delay)

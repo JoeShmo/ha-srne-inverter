@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_MODEL_NAME, DOMAIN
 from .coordinator import SrneWriteValidationError
-from .entity import SrneInverterEntity
+from .entity import SrneInverterEntity, _build_entity_name
 from .modbus_client import SrneModbusError
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,6 +41,15 @@ class SrneSelect(SrneInverterEntity, SelectEntity):
         self._reverse_map: dict[str, int] = {v: k for k, v in self._options_map.items()}
         self._attr_options = list(self._options_map.values())
         self._default_raw = register.get("default")
+
+    @property
+    def name(self) -> str:
+        changed = False
+        if self._default_raw is not None and self.available:
+            current = self.coordinator.data.get(self._register["key"])
+            if current is not None:
+                changed = int(current) != int(self._default_raw)
+        return _build_entity_name(self._register, changed)
 
     @property
     def current_option(self) -> str | None:

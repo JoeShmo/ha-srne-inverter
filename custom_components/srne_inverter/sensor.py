@@ -39,6 +39,19 @@ async def async_setup_entry(
                 "°C", "temperature", entry.entry_id, DEFAULT_MODEL_NAME, device_name,
             ))
 
+    # Firmware version sensors — format raw int (e.g. 231) as "V2.31"
+    for raw_key, display_key, display_name in [
+        ("cpu1_sw_version",    "cpu1_sw_version_str",  "CPU1 Firmware Version"),
+        ("cpu2_sw_version",    "cpu2_sw_version_str",  "CPU2 Firmware Version"),
+        ("hw_version_control", "hw_version_str",       "Control Board Hardware Version"),
+        ("protocol_version",   "protocol_version_str", "RS485 Protocol Version"),
+    ]:
+        if profile.get_register(raw_key) is not None:
+            entities.append(SrneVersionSensor(
+                telemetry_coord, raw_key, display_key, display_name,
+                entry.entry_id, DEFAULT_MODEL_NAME, device_name,
+            ))
+
     async_add_entities(entities)
     async_add_entities([SrneQuarantineSensor(
         telemetry_coord, entry.entry_id, DEFAULT_MODEL_NAME, device_name
@@ -65,6 +78,34 @@ class SrneSensor(SrneInverterEntity, SensorEntity):
         if self._options is not None:
             return self._options.get(int(value), f"Unknown ({int(value)})")
         return value
+
+
+class SrneVersionSensor(SrneInverterEntity, SensorEntity):
+    """Formats a raw firmware/hardware version integer as V#.## string."""
+
+    def __init__(self, coordinator, source_key, key, name,
+                 config_entry_id, device_model, device_name):
+        pseudo = {"key": key, "name": name, "note": None, "param_number": None}
+        super().__init__(coordinator, pseudo, config_entry_id, device_model, device_name)
+        self._source_key = source_key
+        self._attr_entity_registry_enabled_default = False
+
+    @property
+    def available(self) -> bool:
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator.data is not None
+            and self._source_key in self.coordinator.data
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.available:
+            return None
+        raw = int(self.coordinator.data.get(self._source_key, 0))
+        if raw == 0:
+            return None
+        return f"V{raw // 100}.{raw % 100:02d}"
 
 
 class SrnePackedByteSensor(SrneInverterEntity, SensorEntity):

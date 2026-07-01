@@ -60,7 +60,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    # Update device registry with firmware/hardware versions from product info
+    # registers, if they were read successfully in the first telemetry refresh.
+    _async_update_device_info(hass, entry, telemetry_coordinator.data or {})
     return True
+
+
+def _async_update_device_info(hass, entry, data: dict) -> None:
+    """Write firmware/hw version into the HA device registry if available."""
+    from homeassistant.helpers import device_registry as dr
+
+    cpu1 = data.get("cpu1_sw_version")
+    hw = data.get("hw_version_control")
+
+    sw_version = f"V{int(cpu1)//100}.{int(cpu1)%100:02d}" if cpu1 else None
+    hw_version = f"V{int(hw)//100}.{int(hw)%100:02d}" if hw else None
+
+    if not sw_version and not hw_version:
+        return
+
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    if device:
+        dev_reg.async_update_device(
+            device.id,
+            sw_version=sw_version,
+            hw_version=hw_version,
+        )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
