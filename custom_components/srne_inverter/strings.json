@@ -25,7 +25,8 @@
       "init": {
         "title": "SRNE Inverter Options",
         "data": {
-          "scan_interval": "Polling interval (seconds)"
+          "profile_id": "Device protocol profile",
+          "scan_interval": "Telemetry polling interval (seconds)"
         }
       }
     }

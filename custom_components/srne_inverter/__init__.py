@@ -26,7 +26,8 @@ _SN_LENGTH = 20  # 20 registers = 40 ASCII chars
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    profile = get_profile(entry.data[CONF_PROFILE_ID])
+    profile_id = entry.options.get(CONF_PROFILE_ID, entry.data.get(CONF_PROFILE_ID))
+    profile = get_profile(profile_id)
     client = SrneModbusClient(
         host=entry.data[CONF_HOST],
         port=entry.data[CONF_PORT],

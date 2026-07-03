@@ -8,8 +8,7 @@ Sources used:
   - Live Modbus probe testing against the actual device (for E2xx addresses,
     which the V1.7 doc describes incorrectly for this firmware version —
     the E20x range is a factory mirror block; active runtime settings are at
-    higher offsets confirmed by observing which register changes when a
-    setting is changed on the front panel)
+    higher offsets found by probe-testing each parameter on the front panel)
   - parameter_map_v192.csv in this directory (authoritative parameter list;
     edit that file to add/correct parameters — this profile loads from it)
 
@@ -17,16 +16,6 @@ NOT used / explicitly rejected:
   - timbit123/srne-modbus (addresses did not match this firmware)
   - solar-thailand.co.th SRNE MODBUS PDF (standalone MPPT charge controller
     protocol, not applicable to the HYP hybrid inverter/charger family)
-
-Address confidence levels in parameter_map_v192.csv:
-  PROBE_CONFIRMED  - register address confirmed by changing setting on panel
-                     and observing exactly which register changed in probe scan
-  PROBE_INDIRECT   - address consistent with probe scan values but not tested
-                     by changing the setting
-  DOC_CONFIRMED    - address from V1.7 protocol doc, independently corroborated
-  DOC_ONLY         - address from V1.7 protocol doc only, not independently verified
-  UNCONFIRMED      - parameter exists in manual but register address not yet found;
-                     NOT exposed as HA entity
 
 Notes for future profiles (other SRNE models):
   - Copy this file, update PROFILE_ID/PROFILE_NAME
@@ -50,16 +39,12 @@ _csv_registers, ALL_PARAMETERS = load_parameters(_CSV_PATH)
 # ---------------------------------------------------------------------------
 # Telemetry registers (read-only, live data — not in the manual parameter list
 # but essential for monitoring). These come from the V1.7 protocol doc 0x01xx
-# and 0x02xx blocks, confirmed working on this hardware.
+# and 0x02xx telemetry blocks.
 # ---------------------------------------------------------------------------
 
 _TELEMETRY = [
     # Product info (0x000B block)
-    # NOTE: 0x000A on the STANDALONE controller (V3.9 doc) = system voltage (high byte)
-    # and rated charging current (low byte). On the HYBRID INVERTER this register's
-    # meaning is unconfirmed — the standalone doc does not apply to the hybrid family.
-    # Probe result on HYP4850U100-H: raw=159 (0x009F), high=0x00, low=0x9F=159.
-    # Not exposed as a sensor until meaning is confirmed from a hybrid-specific source.
+    # NOTE: 0x000A is Reserved per V1.92 doc. Not exposed as a sensor.
     {"key": "machine_type_code", "name": "Machine Type Code", "address": 0x000B,
      "single_read": True, "length": 1, "data_type": "uint16", "access": "r",
      "entity": "sensor", "scale": 1, "unit": None, "device_class": None,
@@ -95,34 +80,34 @@ _TELEMETRY = [
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "V", "device_class": "voltage",
      "param_number": None, "default": None, "enabled_by_default": True,
-     "note": "BMS-reported battery voltage. Only valid when BMS communication is active."},
+     "note": "BMS-reported battery voltage. Only valid when BMS communication is active"},
     {"key": "bms_current", "name": "BMS Battery Current", "address": 0x0113,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "A", "device_class": "current",
      "param_number": None, "default": None, "enabled_by_default": True,
-     "note": "BMS-reported battery current. Only valid when BMS communication is active."},
+     "note": "BMS-reported battery current. Only valid when BMS communication is active"},
     {"key": "bms_temperature", "name": "BMS Battery Temperature", "address": 0x0114,
      "length": 1, "data_type": "int16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "°C", "device_class": "temperature",
      "param_number": None, "default": None, "enabled_by_default": True,
-     "note": "BMS-reported battery temperature. Only valid when BMS communication is active."},
+     "note": "BMS-reported battery temperature. Only valid when BMS communication is active"},
     {"key": "bms_charge_limit_voltage", "name": "BMS Charge Limit Voltage", "address": 0x0115,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "V", "device_class": "voltage",
      "param_number": None, "default": None, "enabled_by_default": False,
-     "note": "Maximum charge voltage commanded by BMS."},
+     "note": "Maximum charge voltage commanded by BMS"},
     {"key": "bms_charge_limit_current", "name": "BMS Charge Limit Current", "address": 0x0116,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "A", "device_class": "current",
      "param_number": None, "default": None, "enabled_by_default": False,
-     "note": "Maximum charge current commanded by BMS."},
+     "note": "Maximum charge current commanded by BMS"},
     {"key": "bms_discharge_limit_current", "name": "BMS Discharge Limit Current", "address": 0x0117,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "A", "device_class": "current",
      "param_number": None, "default": None, "enabled_by_default": False,
-     "note": "Maximum discharge current commanded by BMS."},
+     "note": "Maximum discharge current commanded by BMS"},
     # Energy statistics (0xF0xx block)
-    # Confirmed via probe on HYP4850U100-H. Scale 0.1 kWh throughout.
+    # Scale 0.1 kWh throughout per V1.7 doc.
     # Daily values reset at midnight. Lifetime values are total_increasing.
     # See docs/f0xx_register_analysis.md for full probe data and layout notes.
     {"key": "daily_pv_energy", "name": "PV Energy Today", "address": 0xF000,
@@ -130,51 +115,49 @@ _TELEMETRY = [
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total", "param_number": None, "default": None,
      "enabled_by_default": True,
-     "note": "Daily PV generation. Resets at midnight. Use for HA Energy solar production."},
+     "note": "Daily PV generation. Resets at midnight. Use for HA Energy solar production"},
     {"key": "daily_load_energy", "name": "Load Energy Today", "address": 0xF00E,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total", "param_number": None, "default": None,
      "enabled_by_default": True,
-     "note": "Daily load consumption. Resets at midnight. Use for HA Energy home consumption."},
+     "note": "Daily load consumption. Resets at midnight. Use for HA Energy home consumption"},
     {"key": "daily_battery_charge_energy", "name": "Battery Charge Energy Today", "address": 0xF01C,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total", "param_number": None, "default": None,
      "enabled_by_default": True,
-     "note": "Daily battery charge energy. Resets at midnight."},
+     "note": "Daily battery charge energy. Resets at midnight"},
     {"key": "daily_battery_discharge_energy", "name": "Battery Discharge Energy Today", "address": 0xF02D,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total", "param_number": None, "default": None,
      "enabled_by_default": True,
-     "note": "Daily battery discharge energy. Resets at midnight."},
+     "note": "Daily battery discharge energy. Resets at midnight"},
     {"key": "total_battery_charge_energy", "name": "Total Battery Charge Energy", "address": 0xF02A,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total_increasing", "param_number": None, "default": None,
      "enabled_by_default": True,
-     "note": "Lifetime battery charge energy accumulator. Probe confirmed: 743.5 kWh lifetime."},
+     "note": "Lifetime battery charge energy accumulator. 5 kWh lifetime"},
     {"key": "total_battery_discharge_energy", "name": "Total Battery Discharge Energy", "address": 0xF02B,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total_increasing", "param_number": None, "default": None,
      "enabled_by_default": True,
-     "note": "Lifetime battery discharge energy accumulator. Probe confirmed: 588.8 kWh lifetime."},
+     "note": "Lifetime battery discharge energy accumulator. 8 kWh lifetime"},
     {"key": "total_pv_energy", "name": "Total PV Energy", "address": 0xF036,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total_increasing", "param_number": None, "default": None,
-     "enabled_by_default": True,
-     "note": "Lifetime PV generation accumulator. Probe candidate: 417.0 kWh. "
-             "Confirm by checking if value grows with solar production over time."},
+     "enabled_by_default": False,
+     "note": "Lifetime PV generation total per V1.7 doc (F036). Disabled by default."},
     {"key": "total_load_energy", "name": "Total Load Energy", "address": 0xF038,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "kWh", "device_class": "energy",
      "state_class": "total_increasing", "param_number": None, "default": None,
      "enabled_by_default": False,
-     "note": "Lifetime load energy accumulator candidate. Probe value: 846.1 kWh. "
-             "Disabled by default until confirmed — value seems high for load-only."},
+     "note": "Lifetime load energy total per V1.7 doc (F038). Disabled by default."},
 
     # Battery / PV telemetry (0x01xx)
     {"key": "battery_soc", "name": "Battery SOC", "address": 0x0100,
@@ -194,7 +177,7 @@ _TELEMETRY = [
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 1, "unit": None, "device_class": None,
      "param_number": None, "default": None, "enabled_by_default": False,
-     "note": "High byte=controller temp C, low byte=battery temp C. Split by sensor platform."},
+     "note": "High byte=controller temp C, low byte=battery temp C. Split by sensor platform"},
     {"key": "pv1_voltage", "name": "PV1 Voltage", "address": 0x0107,
      "length": 1, "data_type": "uint16", "access": "r", "entity": "sensor",
      "scale": 0.1, "unit": "V", "device_class": "voltage",

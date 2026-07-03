@@ -1,64 +1,63 @@
-param_number,param_name,default_value,options_or_range,modbus_address,scale,address_confidence,notes
-00,Exit Settings,ESC,,,,,Panel only - no Modbus equivalent
-01,Supply Priority Mode,PV1ST,"PV First=0,AC First=1,Battery First=2,Mix Load=3",0xE204,1,PROBE_CONFIRMED,"Probe confirmed on HYP4850U100-H: PV1ST=0 AC1ST=1 Mix_Load=3 (panel change tests). BT1ST=2 assumed (only unconfirmed option). V1.92 doc confirms E204=Output Priority. A V1.93 changelog for a different product (pure inverter) reassigned E204 but does not apply to the HYP hybrid inverter/charger product line."
-02,Output Frequency,60Hz,"50.0Hz,60.0Hz",0xE209,0.01,DOC_CONFIRMED,"Only settable when rocker switch is off. Probe indirect: raw=6000->60Hz"
-03,AC Input Voltage Range,UPS,"UPS=1,APL=0",0xE20B,1,PROBE_INDIRECT,"Probe indirect: raw=1->narrow/UPS. Note: options inverted vs V1.7 doc."
-04,Battery to Mains Voltage,46V,40V~52V,,0.1,UNCONFIRMED,"CSV from manual. Address not confirmed via probe."
-05,Mains to Battery Voltage,56V,48V~60V,,0.1,UNCONFIRMED,"CSV from manual. Address not confirmed via probe."
-06,Charging Mode,Solar Only,"Solar+Utility=2,SolarOnly=3",0xE20F,1,PROBE_CONFIRMED,"Probe confirmed: Hybrid/Solar+Utility=2 SolarOnly=3. Values 0/1 may exist on other firmware."
-07,Maximum Charging Current,60A,0~100A,0xE20A,0.1,PROBE_CONFIRMED,"Probe confirmed scale=0.1 (raw=200->20A). Default per manual 60A."
-08,Battery Type,GEL,"USER=0,SLd=1,FLd=2,GEL=3,LFP14=4,LFP15=5,LFP16=6,NCM13=7,NCM14=8,NoBatt=9",0xE004,1,DOC_ONLY,"V1.7 doc address. Not independently probed."
-09,Boost Voltage,57.6V,48V~58.4V step 0.4V,0xE008,0.1,DOC_ONLY,"Available for user-defined and lithium types. Varies by battery type."
-10,Maximum Boost Duration,120min,5min~900min step 5min,0xE012,1,DOC_ONLY,
-11,Float Charge Voltage,55.2V,48V~58.4V step 0.4V,0xE009,0.1,DOC_ONLY,"May be no-op when BMS comms enabled. Varies by battery type."
-12,Over-discharge Voltage,42V,40V~48V step 0.4V,0xE00D,0.1,DOC_CONFIRMED,"Param 12 confirmed via probe cross-reference (offset=12 from E001 base)."
-13,Over-discharge Delay Time,5s,5s~50s step 5s,0xE010,1,DOC_ONLY,
-14,Battery Under-voltage Alarm,44V,40V~52V step 0.4V,0xE00C,0.1,DOC_ONLY,
-15,Battery Discharge Limit Voltage,40V,40V~52V step 0.4V,0xE00E,0.1,DOC_ONLY,"User-defined and lithium only."
-16,Equalization Charge Enable,ENA,"DIS=0,ENA=1",0xE206,1,UNCONFIRMED,"CSV from manual. Earlier probe showed E206=0 which matched disabled."
-17,Equalization Voltage,58V,48V~58V step 0.4V,0xE007,0.1,DOC_ONLY,"Lead-acid and user-defined only."
-18,Equalization Charging Time,120min,5min~900min step 5min,0xE011,1,DOC_ONLY,
-19,Equalized Charging Delay,120min,5min~900min step 5min,0xE013,1,DOC_ONLY,
-20,Equalization Charge Interval,30days,0~30days step 1,0xE01A,1,DOC_ONLY,
-21,Equalization Charging Start-Stop,DIS,"ENA,DIS",,1,UNCONFIRMED,"Immediate manual equalization trigger. Address unknown."
-22,ECO Mode,DIS,"DIS=0,ENA=1",,1,UNCONFIRMED,
-23,Overload Automatic Restart,ENA,"DIS=0,ENA=1",0xE20D,1,UNCONFIRMED,"Probe showed E20D=1. Not confirmed by panel change test."
-24,Auto Restart Upon Over-temperature,ENA,"DIS=0,ENA=1",0xE20E,1,UNCONFIRMED,"Probe showed E20E=1. Not confirmed by panel change test."
-25,Buzzer Alarm,ENA,"DIS=0,ENA=1",,1,UNCONFIRMED,
-26,Mode Change Reminder,ENA,"DIS=0,ENA=1",,1,UNCONFIRMED,
-27,Inverter Overload to Bypass,ENA,"DIS=0,ENA=1",0xE212,1,UNCONFIRMED,"Probe showed E212=1. Not confirmed by panel change test."
-28,Grid Charge Current Limit,60A,0~60A (230V) / 0~40A (120V),0xE205,1,PROBE_CONFIRMED,"Probe confirmed raw=20=20A scale=1. Default 60A per manual (230V model)."
-30,RS485 Address Setting,1,1~254,0xE200,1,PROBE_INDIRECT,"Probe showed E200=1. Consistent with RS485 address=1."
-31,AC Output Mode,SIG,"SIG,PAL,2P0,2P1,2P2,3P1,3P2,3P3",,1,UNCONFIRMED,"Read-only in HA per user requirement. Only settable with rocker switch off."
-32,Communication Function,SLA,"SLA=0,485=1",0xE210,1,UNCONFIRMED,"Probe showed E210=0. Not confirmed by panel change test."
-33,BMS Communication Protocol,,"PACE=0,RUDA=1,AOGUAN=2,OULITE=3,CEF=4,XINWANGDA=5,DAQIN=6,WOW=7,PYL=8,MIT=9,XIX=10,POL=11,GUOX=12,SMK=13,VOL=14,WES=15",0xE21B,1,PROBE_CONFIRMED,Probe confirmed E21B=8=Pylontech
-34,ON-GRID Function (S series),DIS,"DIS,TOGRID",,1,UNCONFIRMED,"S-series only - may not apply to U-series."
-35,Battery Under-voltage Recovery,52V,44V~54.4V,0xE01B,0.1,DOC_ONLY,
-36,Max PV Charger Current,80A,0~100A,0xE001,1,DOC_ONLY,
-37,Battery Recharge Recovery Point,52V,44V~54V,0xE022,0.1,DOC_ONLY,
-38,AC Output Rated Voltage,120Vac,"100/105/110/120/127Vac (120V model)",0xE208,0.1,PROBE_INDIRECT,"Probe indirect: raw=1200->120V. Only settable with rocker switch off."
-39,Charge Current Limiting Method,LC BMS,"LC_SET=0,LC_BMS=1,LC_INV=2",,1,UNCONFIRMED,"Active when BMS enabled. Address unknown."
-40,1-Section Start Charging Time,00:00,,0xE021,1,UNCONFIRMED,"Time-of-use charging schedule. Address unconfirmed."
-41,1-Section End Charging Time,00:00,,,1,UNCONFIRMED,
-42,2-Section Start Charging Time,00:00,,,1,UNCONFIRMED,
-43,2-Section End Charging Time,00:00,,,1,UNCONFIRMED,
-44,3-Section Start Charging Time,00:00,,,1,UNCONFIRMED,
-45,3-Section End Charging Time,00:00,,,1,UNCONFIRMED,
-46,Sectional Charging Function,DIS,"DIS,ENA",,1,UNCONFIRMED,
-47,1-Section Start Discharging Time,00:00,,,1,UNCONFIRMED,
-48,1-Section End Discharging Time,00:00,,,1,UNCONFIRMED,
-49,2-Section Start Discharging Time,00:00,,,1,UNCONFIRMED,
-50,2-Section End Discharging Time,00:00,,,1,UNCONFIRMED,
-51,3-Section Start Discharging Time,00:00,,,1,UNCONFIRMED,
-52,3-Section End Discharging Time,00:00,,,1,UNCONFIRMED,
-53,Sectional Discharge Function,DIS,"DIS,ENA",,1,UNCONFIRMED,
-54,Current Date Setting,,,0xE216,1,UNCONFIRMED,"Date/time registers. Address structure complex."
-55,Current Time Setting,,,0xE217,1,UNCONFIRMED,
-57,Stop Charging Current,2A,0~40A,0xE01C,0.1,DOC_ONLY,"Lithium only. V1.7 doc address."
-58,Discharge Alarm SOC,15%,0~100%,0xE01E,1,DOC_ONLY,"Valid when BMS communication normal."
-59,Cut-off Discharge SOC,5%,0~100%,,1,UNCONFIRMED,"Address not found in any source."
-60,Cut-off Charge SOC,100%,0~100%,0xE01D,1,DOC_ONLY,
-61,Switch to Mains SOC,10%,0~100%,0xE01F,1,DOC_ONLY,"SBU mode only."
-62,Switch to Inverter SOC,100%,0~100%,0xE020,1,DOC_ONLY,"SBU mode only."
-63,N-G Automatically Connect,DIS,"DIS=0,ENA=1",,1,UNCONFIRMED,"U-series only. Address unknown."
-78,Battery Hybrid Discharge Current,100A,0~100A,,0.1,UNCONFIRMED,"Address not found in any source."
+param_number,param_name,default_value,options_or_range,modbus_address,scale
+01,Supply Priority Mode,Mix Load,"PV First=0,AC First=1,Battery First=2,Mix Load=3",0xE204,1
+02,Output Frequency,60Hz,"50Hz=5000,60Hz=6000",0xE209,0.01
+03,AC Input Voltage Range,UPS,"Wide (APL)=0,Narrow (UPS)=1",0xE20B,1
+04,Battery to Mains Voltage,46V,40~52,,,
+05,Mains to Battery Voltage,56V,48~60,,,
+06,Charging Mode,Solar Only,"Solar and Utility=2,Solar Only=3",0xE20F,1
+07,Maximum Charging Current,60A,0~100,0xE20A,0.1
+08,Battery Type,GEL,"User Defined=0,Sealed Lead-Acid=1,Flooded Lead-Acid=2,GEL=3,LFP 14S=4,LFP 15S=5,LFP 16S=6,NCM 13S=7,NCM 14S=8,No Battery=9",0xE004,1
+09,Boost Voltage,57.6V,48~58.4 step 0.4,0xE008,0.1
+10,Maximum Boost Duration,120min,5~900 step 5,0xE012,1
+11,Float Charge Voltage,55.2V,48~58.4 step 0.4,0xE009,0.1
+12,Over-discharge Voltage,42V,40~48 step 0.4,0xE00D,0.1
+13,Over-discharge Delay Time,5s,5~50 step 5,0xE010,1
+14,Battery Under-voltage Alarm,44V,40~52 step 0.4,0xE00C,0.1
+15,Battery Discharge Limit Voltage,40V,40~52 step 0.4,0xE00E,0.1
+16,Equalization Charge Enable,Enable,"Disable=0,Enable=1",0xE206,1
+17,Equalization Voltage,58V,48~58 step 0.4,0xE007,0.1
+18,Equalization Charging Time,120min,5~900 step 5,0xE011,1
+19,Equalized Charging Delay,120min,5~900 step 5,0xE013,1
+20,Equalization Charge Interval,30days,0~30,0xE01A,1
+21,Equalization Charging Start-Stop,Disable,"Enable=1,Disable=0",,1
+22,ECO Mode,Disable,"Disable=0,Enable=1",,1
+23,Overload Automatic Restart,Enable,"Disable=0,Enable=1",0xE20D,1
+24,Auto Restart Upon Over-temperature,Enable,"Disable=0,Enable=1",0xE20E,1
+25,Buzzer Alarm,Enable,"Disable=0,Enable=1",,1
+26,Mode Change Reminder,Enable,"Disable=0,Enable=1",,1
+27,Inverter Overload to Bypass,Enable,"Disable=0,Enable=1",0xE212,1
+28,Grid Charge Current Limit,60A,0~60,0xE205,1
+30,RS485 Address Setting,1,1~254,0xE200,1
+31,AC Output Mode,SIG,"SIG=0,PAL=1,2P0=2,2P1=3,2P2=4,3P1=5,3P2=6,3P3=7",,1
+32,Communication Function,SLA,"SLA=0,485=1",0xE210,1
+33,BMS Communication Protocol,,"PACE=0,RUDA=1,AOGUAN=2,OULITE=3,CEF=4,XINWANGDA=5,DAQIN=6,WOW=7,PYL=8,MIT=9,XIX=10,POL=11,GUOX=12,SMK=13,VOL=14,WES=15",0xE21B,1
+34,ON-GRID Function (S series),Disable,"Disable=0,Enable=1",,1
+35,Battery Under-voltage Recovery,52V,44~54.4 step 0.4,0xE01B,0.1
+36,Max PV Charger Current,80A,0~100,0xE001,1
+37,Battery Recharge Recovery Point,52V,44~54 step 0.4,0xE022,0.1
+38,AC Output Rated Voltage,120V,"100V=1000,105V=1050,110V=1100,120V=1200,127V=1270,200V=2000,208V=2080,220V=2200,240V=2400",0xE208,0.1
+39,Charge Current Limiting Method,LC BMS,"LC SET=0,LC BMS=1,LC INV=2",0xE21A,1
+40,1-Section Start Charging Time,00:00,00:00~23:59,,1
+41,1-Section End Charging Time,00:00,00:00~23:59,,1
+42,2-Section Start Charging Time,00:00,00:00~23:59,,1
+43,2-Section End Charging Time,00:00,00:00~23:59,,1
+44,3-Section Start Charging Time,00:00,00:00~23:59,,1
+45,3-Section End Charging Time,00:00,00:00~23:59,,1
+46,Sectional Charging Function,Disable,"Disable=0,Enable=1",,1
+47,1-Section Start Discharging Time,00:00,00:00~23:59,,1
+48,1-Section End Discharging Time,00:00,00:00~23:59,,1
+49,2-Section Start Discharging Time,00:00,00:00~23:59,,1
+50,2-Section End Discharging Time,00:00,00:00~23:59,,1
+51,3-Section Start Discharging Time,00:00,00:00~23:59,,1
+52,3-Section End Discharging Time,00:00,00:00~23:59,,1
+53,Sectional Discharge Function,Disable,"Disable=0,Enable=1",,1
+54,Current Date Setting,,,0xE216,1
+55,Current Time Setting,,,0xE217,1
+57,Stop Charging Current,2A,0~40,0xE01C,0.1
+58,Discharge Alarm SOC,15%,0~100,0xE01E,1
+59,Cut-off Discharge SOC,5%,0~100,,1
+60,Cut-off Charge SOC,100%,0~100,0xE01D,1
+61,Switch to Mains SOC,10%,0~100,0xE01F,1
+62,Switch to Inverter SOC,100%,0~100,0xE020,1
+63,N-G Automatically Connect,Disable,"Disable=0,Enable=1",,1
+78,Battery Hybrid Discharge Current,100A,0~100,,0.1

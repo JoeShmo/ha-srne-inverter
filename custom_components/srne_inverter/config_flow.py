@@ -114,7 +114,7 @@ class SrneInverterConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class SrneInverterOptionsFlow(OptionsFlow):
-    """Options flow: lets the user tune polling interval after setup."""
+    """Options flow: profile selection and polling interval."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
@@ -125,13 +125,27 @@ class SrneInverterOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
-        current = self._config_entry.options.get(
+        choices = profile_choices()
+        current_profile = self._config_entry.options.get(
+            CONF_PROFILE_ID,
+            self._config_entry.data.get(CONF_PROFILE_ID, DEFAULT_PROFILE_ID),
+        )
+        current_interval = self._config_entry.options.get(
             CONF_SCAN_INTERVAL,
             self._config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_SCAN_INTERVAL, default=current): vol.All(
+                vol.Required(CONF_PROFILE_ID, default=current_profile): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=pid, label=name)
+                            for pid, name in choices.items()
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(CONF_SCAN_INTERVAL, default=current_interval): vol.All(
                     int, vol.Range(min=5, max=300)
                 ),
             }
