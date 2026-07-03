@@ -1,119 +1,114 @@
 # SRNE Inverter — Home Assistant Custom Integration
 
-A Home Assistant custom integration for SRNE-protocol energy storage
-inverter/chargers — including rebrands sold under other names (e.g. Sungold
-SPH series). Built against the SRNE "Energy Storage Inverter Modbus
-Communication Protocol V1.7", which covers the HYP-series hybrid
-inverter/chargers (AC bypass, single MPPT stage, split-phase output).
+A Home Assistant custom integration for SRNE HYP-series hybrid inverter/chargers
+and rebrands (Sungold SPH series). Exposes live telemetry as sensors and writable
+configuration parameters as controls, all under a single Device page.
 
-Connects via Modbus RTU-over-TCP — typically a `ser2net` bridge on a
-Raspberry Pi (or similar) that holds the physical USB-serial connection to
-the inverter, letting Home Assistant itself run on a different host.
+## Supported hardware
 
-## Why this exists
+- **SRNE HYP4850U100-H** (confirmed working)
+- **Sungold SPH5048P** (rebrand of the above — same Modbus protocol)
+- Other SRNE HYP-series hybrid inverter/chargers (untested but likely compatible)
 
-Most SRNE/solar-controller Home Assistant setups either:
-- use the generic `modbus:` YAML integration, which can't group entities
-  into a single Device page, or
-- use a register map intended for a *standalone DC charge controller*
-  (ML/MT-series protocol), which doesn't match the all-in-one hybrid
-  inverter/charger models that SRNE/Sungold/etc. also market as "solar
-  charge controllers."
+## Sources
 
-This integration targets the Energy Storage Inverter protocol specifically,
-groups everything under one Device, and enforces min/max ranges from the
-spec on any writable register before sending a write.
+Register addresses and parameter definitions come from the following sources,
+in strict order of trust:
 
-## Features
+1. **Live Modbus probe testing** (`srne_probe.py`) against a real HYP4850U100-H unit.
+   Register addresses confirmed by changing a setting on the front panel and
+   observing exactly which register changes. These are marked `PROBE_CONFIRMED`
+   in `parameter_map_v192.csv`.
 
-- One Device per configured inverter, with all sensors and config controls
-  grouped together (Settings → Devices & Services → your inverter).
-- Read-only sensors: battery, PV, grid, inverter output, load, temperatures, faults.
-- Writable `number`/`select` entities for battery and inverter configuration
-  (charge voltages, current limits, battery type, charge priority, BMS
-  communication enable, etc.) — see the in-app entity descriptions for
-  per-register notes (e.g. some battery voltage setpoints become no-ops
-  once BMS communication is enabled, since the BMS then governs charging).
-- Config flow (Settings → Devices & Services → Add Integration) — no YAML
-  required. Validates the connection before letting you finish setup.
-- Register definitions live in a separate "profile" module
-  (`profiles/srne_esi_v1_7.py`), so a different SRNE protocol family or
-  firmware revision can be added later as a new sibling file, selectable
-  from a dropdown in the config flow, without touching the rest of the code.
+2. **HYP4850S+U100-H User Manual V2.6** (2025-04-11), Section 3.2 Setup Parameters.
+   Source for parameter numbers, names, defaults, and option labels.
+   https://www.srnesolar.us/userfiles/files/2025/05/09/HYP4850S+U100-H(NG+SUB)_Manual_EN_V2.6[20250411].pdf
 
-## Requirements
+3. **SRNE MODBUS Protocol V3.9** (standalone MPPT charge controller family — ML/MT series).
+   Authoritative for the `0x000A`–`0x001A` product info block and `0x01xx`/`0x02xx`
+   telemetry block structures, which are consistent across SRNE product lines.
+   https://solar-thailand.co.th/pdf/SRNE-MODBUS.pdf
+   *Note: this document covers standalone charge controllers, NOT the HYP hybrid
+   inverter/charger. The E0xx/E2xx configuration register map in this document
+   does NOT apply to the HYP family.*
 
-- A working `ser2net` (or equivalent) bridge exposing the inverter's
-  USB-serial connection over TCP. See `docs/ser2net-setup.md` (or your own
-  notes) for that side of the setup — it's independent of this integration.
-- Home Assistant 2024.1.0 or newer.
+4. **SRNE Energy Storage Inverter MODBUS Communication Protocol** (V1.7 or V1.92/V1.96).
+   The hybrid inverter-specific protocol covering the E0xx battery config and E2xx
+   inverter config register blocks. This document exists in multiple versions.
+   The V1.7 variant is hosted at:
+   https://github.com/shakthisachintha/SRNE-Hybrid-Inverter-Monitor/raw/master/Resources/SRNE%20hybrid%20solar%20inverter%20MODBUS%20protocol%20V1%207.pdf
+   The V1.92 variant has been located at:
+   https://www.myhomethings.eu/wp-content/uploads/2024/04/SRNE_ModBus_Protokoll_V1.92.pdf
+   (retrieved and confirmed — `0x000A` is explicitly Reserved in this document;
+   `0xE204` is confirmed as Output/Supply Priority, consistent with our probe results)
+   A V1.93 changelog was partially visible on Scribd noting that `0xE204` changed
+   meaning in V1.93 — however that changelog entry applies to a pure inverter product
+   line that does not have output priority as a concept. It does not apply to the HYP
+   hybrid inverter/charger family. `0xE204` is probe-confirmed as Supply Priority on
+   the HYP4850U100-H.
+   No V1.93+ full document covering the HYP series has been located. If you find one,
+   please add it to `docs/` and update this README.
 
-## Installation
+## Sources explicitly NOT used as authoritative
 
-### Via HACS (custom repository, until/unless this is added to the default store)
+The following were consulted but are NOT used as primary sources. Any address
+derived solely from these without probe confirmation is marked `UNCONFIRMED`:
 
-1. HACS → the three-dot menu (top right) → **Custom repositories**.
-2. Add this repository's URL, category **Integration**.
-3. Find "SRNE Inverter" in HACS and install.
-4. Restart Home Assistant.
-5. Settings → Devices & Services → Add Integration → search "SRNE Inverter".
+- **timbit123/srne-modbus** (targets V1.96 protocol) — a community project with
+  useful context but no cited primary documentation. Some addresses conflicted
+  with probe results on this hardware. Do not treat as ground truth.
+- **danzelziggy/srne-solarman**, **cole8888/SRNE-Solar-Charge-Controller-Monitor**,
+  **jblance/mpp-solar**, and other community repos — potentially useful for
+  cross-referencing but subject to the same caveat: without a primary source
+  citation, they cannot be treated as authoritative. Using community repos to
+  validate other community repos creates a circular reference problem.
 
-### Manual
+## Architecture
 
-1. Copy `custom_components/srne_inverter/` into your Home Assistant
-   `config/custom_components/` directory.
-2. Restart Home Assistant.
-3. Settings → Devices & Services → Add Integration → search "SRNE Inverter".
+**Connection:** USB-serial on a Raspberry Pi → `ser2net` → Modbus RTU-over-TCP → HA.
 
-## Configuration
+**Two poll loops:**
+- Telemetry (battery, PV, grid, load, temperatures, faults): every 30 seconds
+- Configuration parameters (E0xx/E2xx registers): every 60 minutes + on startup
 
-All configuration happens through the UI — no YAML editing required:
+**Parameter map:** `parameter_map.csv` is the authoritative source of parameter
+definitions. Each row has a confidence level:
+- `PROBE_CONFIRMED` — address verified by panel change test
+- `PROBE_INDIRECT` — address consistent with scan but not change-tested
+- `DOC_CONFIRMED` — address from V1.7 doc, independently corroborated
+- `DOC_ONLY` — address from V1.7 doc only
+- `UNCONFIRMED` — parameter exists in manual; address not yet found; not exposed in HA
 
-| Field | Description |
-|---|---|
-| Name | Friendly name for the device |
-| Host | IP/hostname of the ser2net bridge (e.g. your Pi) |
-| Port | TCP port ser2net is listening on |
-| Modbus slave ID | Usually `1` unless you've changed the inverter's address |
-| Device protocol profile | Which register map to use (currently one option) |
+## Adding support for another model
 
-After setup, **Settings → Devices & Services → SRNE Inverter → Configure**
-lets you adjust the polling interval.
+1. Copy `parameter_map.csv` to `parameter_map_<model>.csv`
+2. Update addresses and confidence levels for the new model
+3. Create `profiles/srne_<model>.py` pointing `csv_loader` at the new CSV
+4. Register the new profile in `profiles/__init__.py`
 
-## A note on the pymodbus dependency
+## Installation via HACS
 
-This integration deliberately does **not** pin a pymodbus version in its
-manifest. Home Assistant's own built-in `modbus` integration depends on
-pymodbus too, and that version moves often — pinning a different version
-here can produce an "unsatisfiable requirements" error that breaks both
-integrations at once. Instead, this integration detects which pymodbus API
-shape is installed at runtime (the `framer` parameter and the `slave`/
-`device_id` keyword have both changed across pymodbus releases) and adapts.
+1. HACS → ⋮ → Custom repositories → add this repo URL → Integration
+2. Install "SRNE Inverter" from HACS
+3. Restart Home Assistant
+4. Settings → Devices & Services → Add Integration → "SRNE Inverter"
 
-If pymodbus isn't installed at all (very unlikely — almost every HA instance
-has it via the built-in `modbus` integration or another Modbus-based custom
-integration), installing this integration won't pull it in automatically.
-If you hit an import error for `pymodbus` specifically, enable HA's built-in
-Modbus integration once (Settings → Devices & Services → Add Integration →
-Modbus) to have HA install it, then this integration will be able to use it.
+## ser2net setup (Raspberry Pi)
 
-## Known limitations / things to verify on your hardware
+```bash
+sudo apt install ser2net
+# Find your device: ls -l /dev/serial/by-id/
+sudo nano /etc/ser2net.yaml
+```
 
-- Only single-phase/split-phase registers are mapped; three-phase variant
-  registers (phase B/C) are not yet included.
-- Historical/statistics registers (the `F0xx` block) are not yet exposed.
-- If you enable BMS Communication, some static battery voltage setpoints may
-  stop having any effect, since the inverter is expected to defer those
-  decisions to the BMS. This isn't independently verified against every BMS —
-  test on yours and watch for unexpected behavior before relying on it.
+```yaml
+connection: &srne
+  accepter: tcp,5020
+  connector: serialdev,/dev/serial/by-id/YOUR-DEVICE-PATH,9600n81,local
+  options:
+    kickolduser: true
+```
 
-## Contributing a new profile
-
-To add support for another SRNE-family protocol (e.g. the standalone
-ML/MT charge-controller register map):
-
-1. Copy `profiles/srne_esi_v1_7.py` as a starting template.
-2. Update `PROFILE_ID`, `PROFILE_NAME`, and the `REGISTERS` list for the new
-   protocol's addresses/scaling/ranges.
-3. Register the new module in `profiles/__init__.py`'s `PROFILES` dict.
-4. It will automatically appear as a selectable option in the config flow.
+```bash
+sudo systemctl enable --now ser2net
+```

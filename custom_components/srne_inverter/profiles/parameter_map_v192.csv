@@ -1,6 +1,6 @@
 param_number,param_name,default_value,options_or_range,modbus_address,scale,address_confidence,notes
 00,Exit Settings,ESC,,,,,Panel only - no Modbus equivalent
-01,Supply Priority Mode,PV1ST,"AC1ST=1,BT1ST=?,PV1ST=0,Mix=?",0xE204,1,PROBE_CONFIRMED,"Probe confirmed: PV1ST=0 AC1ST=1. BT1ST and Mix Load raw values not yet confirmed."
+01,Supply Priority Mode,PV1ST,"PV First=0,AC First=1,Battery First=2,Mix Load=3",0xE204,1,PROBE_CONFIRMED,"Probe confirmed on HYP4850U100-H: PV1ST=0 AC1ST=1 Mix_Load=3 (panel change tests). BT1ST=2 assumed (only unconfirmed option). V1.92 doc confirms E204=Output Priority. A V1.93 changelog for a different product (pure inverter) reassigned E204 but does not apply to the HYP hybrid inverter/charger product line."
 02,Output Frequency,60Hz,"50.0Hz,60.0Hz",0xE209,0.01,DOC_CONFIRMED,"Only settable when rocker switch is off. Probe indirect: raw=6000->60Hz"
 03,AC Input Voltage Range,UPS,"UPS=1,APL=0",0xE20B,1,PROBE_INDIRECT,"Probe indirect: raw=1->narrow/UPS. Note: options inverted vs V1.7 doc."
 04,Battery to Mains Voltage,46V,40V~52V,,0.1,UNCONFIRMED,"CSV from manual. Address not confirmed via probe."

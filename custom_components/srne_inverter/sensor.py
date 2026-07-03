@@ -57,6 +57,13 @@ async def async_setup_entry(
         telemetry_coord, entry.entry_id, DEFAULT_MODEL_NAME, device_name
     )])
 
+    # Serial number — read once on startup, stored in hass.data
+    sn = hass.data[DOMAIN][entry.entry_id].get("serial_number")
+    if sn:
+        async_add_entities([SrneSerialNumberSensor(
+            telemetry_coord, sn, entry.entry_id, DEFAULT_MODEL_NAME, device_name
+        )])
+
 
 class SrneSensor(SrneInverterEntity, SensorEntity):
     def __init__(self, coordinator, register, config_entry_id, device_model, device_name):
@@ -64,7 +71,7 @@ class SrneSensor(SrneInverterEntity, SensorEntity):
         self._attr_native_unit_of_measurement = register.get("unit")
         self._attr_device_class = register.get("device_class")
         if register.get("device_class") != "enum":
-            self._attr_state_class = "measurement"
+            self._attr_state_class = register.get("state_class", "measurement")
         self._attr_entity_registry_enabled_default = register.get("enabled_by_default", True)
         self._options = register.get("options")
 
@@ -135,6 +142,29 @@ class SrnePackedByteSensor(SrneInverterEntity, SensorEntity):
         byte_value = (raw >> 8) & 0xFF if self._high_byte else raw & 0xFF
         sign = -1 if byte_value & 0x80 else 1
         return sign * (byte_value & 0x7F)
+
+
+class SrneSerialNumberSensor(SrneInverterEntity, SensorEntity):
+    """Static sensor showing the inverter serial number read on startup."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator, serial_number, config_entry_id, device_model, device_name):
+        pseudo = {"key": "serial_number", "name": "Serial Number",
+                  "note": "Read from register 0x0035 on startup (20-register ASCII string). "
+                          "Format: SR-YYMMDD####-######",
+                  "param_number": None}
+        super().__init__(coordinator, pseudo, config_entry_id, device_model, device_name)
+        self._serial_number = serial_number
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> str:
+        return self._serial_number
 
 
 class SrneQuarantineSensor(SrneInverterEntity, SensorEntity):

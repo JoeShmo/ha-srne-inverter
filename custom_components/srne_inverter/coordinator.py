@@ -229,7 +229,7 @@ class SrneTelemetryCoordinator(_SrneBaseCoordinator):
             hass, client, profile,
             name="srne_telemetry",
             scan_interval=scan_interval,
-            register_filter=lambda r: r["address"] < 0x1000,
+            register_filter=lambda r: r["address"] < 0x1000 or 0xF000 <= r["address"] <= 0xF3FF,
         )
 
 
