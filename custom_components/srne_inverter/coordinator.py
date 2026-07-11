@@ -2,21 +2,15 @@
 
 Two separate DataUpdateCoordinator instances:
 
-  SrneTelemetryCoordinator  — polls 0x01xx/0x02xx registers every 30s.
-    These are volatile RAM values (PV power, battery V/I, temperatures,
-    fault codes) that change continuously and are safe to read rapidly.
+  SrneTelemetryCoordinator  — polls 0x01xx/0x02xx/0xF0xx registers every 30s.
+  SrneConfigCoordinator     — polls 0xE0xx/0xE2xx registers every 3600s.
 
-  SrneConfigCoordinator     — polls 0xE0xx/0xE2xx registers every 3600s
-    (also on startup). These are NVRAM/flash-backed settings that rarely
-    change. E2xx registers are read one at a time (single_read:True in the
-    profile) because some firmware versions reject multi-register reads of
-    that block. If they fail, those keys are simply absent from coordinator
-    data so HA shows "Unknown" — never a stale default.
+Both share one SrneModbusClient. Each poll cycle opens a fresh TCP connection
+and closes it when done, so ser2net never sees an idle connection to drop.
 
-Both coordinators share one SrneModbusClient but do NOT overlap in time
-(HA's coordinator scheduling is single-threaded per event loop). Each
-poll cycle opens a fresh TCP connection and closes it when done, so
-ser2net never sees an idle connection to drop.
+On connection failure, UpdateFailed is raised and HA marks all entities
+unavailable for that cycle. Recovery is automatic on the next poll interval —
+no manual intervention required.
 """
 
 from __future__ import annotations
@@ -34,10 +28,9 @@ from .modbus_client import SrneModbusClient, SrneModbusError
 _LOGGER = logging.getLogger(__name__)
 
 _MAX_BLOCK_SIZE = 30   # SRNE protocol hard limit is 32; stay under with margin
-_MAX_CONSECUTIVE_FAILURES = 3
 
-TELEMETRY_SCAN_INTERVAL = 30   # seconds
-CONFIG_SCAN_INTERVAL = 3600    # seconds
+TELEMETRY_SCAN_INTERVAL = 30    # seconds
+CONFIG_SCAN_INTERVAL = 3600     # seconds
 
 
 def _build_read_blocks(registers: list[dict]) -> list[list[dict]]:
@@ -107,33 +100,21 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.profile = profile
-        self._failure_counts: dict[str, int] = {}
-        self._quarantined_keys: set[str] = set()
         self._all_registers = [
             r for r in profile.REGISTERS
             if r["access"] in ("r", "rw") and register_filter(r)
         ]
-        self._rebuild_blocks()
-
-    def _rebuild_blocks(self) -> None:
-        active = [r for r in self._all_registers if r["key"] not in self._quarantined_keys]
-        self._read_blocks = _build_read_blocks(active)
-        _LOGGER.error(
-            "SRNE %s: poll plan = %d registers, %d blocks, %d quarantined. Blocks: %s",
-            self.name, len(active), len(self._read_blocks), len(self._quarantined_keys),
-            [(f"0x{b[0]['address']:04X}", len(b)) for b in self._read_blocks],
+        self._read_blocks = _build_read_blocks(self._all_registers)
+        _LOGGER.debug(
+            "SRNE %s: %d registers, %d blocks",
+            name, len(self._all_registers), len(self._read_blocks),
         )
 
-    @property
-    def quarantined_keys(self) -> set[str]:
-        return self._quarantined_keys
-
     async def _async_update_data(self) -> dict[str, Any]:
-        _LOGGER.debug("SRNE %s: starting poll (%d blocks)", self.name, len(self._read_blocks))
+        """Poll all registers for this coordinator in one TCP session."""
         try:
             await self.client.async_connect()
         except SrneModbusError as err:
-            _LOGGER.warning("SRNE %s: connect failed: %s", self.name, err)
             raise UpdateFailed(f"Could not connect: {err}") from err
 
         data: dict[str, Any] = {}
@@ -144,16 +125,15 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 block_start = block[0]["address"]
                 block_end = block[-1]["address"] + block[-1]["length"]
                 block_span = block_end - block_start
-                block_keys = [r["key"] for r in block]
 
                 try:
                     raw = await self.client.async_read_registers(block_start, block_span)
-                    _LOGGER.debug("Block OK: 0x%04X keys=%s", block_start, block_keys)
                 except SrneModbusError as err:
                     block_errors.append(f"0x{block_start:04X}: {err}")
-                    _LOGGER.warning("SRNE block FAIL 0x%04X keys=%s: %s", block_start, block_keys, err)
-                    for reg in block:
-                        self._note_failure(reg["key"])
+                    _LOGGER.debug(
+                        "SRNE block read failed 0x%04X: %s",
+                        block_start, err,
+                    )
                     await asyncio.sleep(self.client.inter_block_delay)
                     continue
 
@@ -163,10 +143,8 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     try:
                         decoded = self.client.decode_value(reg_raw, reg["data_type"])
                         data[reg["key"]] = decoded * reg.get("scale", 1)
-                        self._failure_counts[reg["key"]] = 0
                     except (ValueError, IndexError) as err:
-                        block_errors.append(f"{reg['key']}: decode: {err}")
-                        self._note_failure(reg["key"])
+                        block_errors.append(f"{reg['key']}: decode error: {err}")
 
                 await asyncio.sleep(self.client.inter_block_delay)
 
@@ -175,23 +153,18 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if not data and self._read_blocks:
             raise UpdateFailed(
-                f"All reads failed; errors: {'; '.join(block_errors[:3])}"
+                f"All reads failed: {'; '.join(block_errors[:3])}"
             )
         if block_errors:
-            _LOGGER.warning("%s: %d block error(s): %s", self.name, len(block_errors), "; ".join(block_errors[:5]))
+            _LOGGER.warning(
+                "SRNE %s: %d block error(s) this cycle: %s",
+                self.name, len(block_errors), "; ".join(block_errors[:5]),
+            )
 
         return data
 
-    def _note_failure(self, key: str) -> None:
-        count = self._failure_counts.get(key, 0) + 1
-        self._failure_counts[key] = count
-        if count >= _MAX_CONSECUTIVE_FAILURES and key not in self._quarantined_keys:
-            self._quarantined_keys.add(key)
-            _LOGGER.warning("Register '%s' quarantined after %d failures", key, count)
-            self._rebuild_blocks()
-
     async def async_write_value(self, key: str, real_value: float) -> None:
-        """Validate and write a value; reconnects if needed for writes."""
+        """Validate and write a value to the device."""
         reg = next((r for r in self.profile.REGISTERS if r["key"] == key), None)
         if reg is None:
             raise SrneWriteValidationError(f"Unknown register key: {key}")
@@ -215,14 +188,14 @@ class _SrneBaseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.client.async_write_register(reg["address"], encoded[0])
 
-        # Optimistically update local cache
+        # Optimistically update local cache so the UI reflects the change immediately
         if self.data is not None:
             self.data[key] = real_value
             self.async_set_updated_data(self.data)
 
 
 class SrneTelemetryCoordinator(_SrneBaseCoordinator):
-    """Polls 0x01xx/0x02xx telemetry registers every 30 seconds."""
+    """Polls live telemetry registers (0x01xx/0x02xx/0xF0xx) every 30 seconds."""
 
     def __init__(self, hass, client, profile, scan_interval=TELEMETRY_SCAN_INTERVAL):
         super().__init__(
@@ -234,7 +207,7 @@ class SrneTelemetryCoordinator(_SrneBaseCoordinator):
 
 
 class SrneConfigCoordinator(_SrneBaseCoordinator):
-    """Polls E0xx/E2xx config registers every hour (also on startup)."""
+    """Polls configuration registers (0xE0xx/0xE2xx) every hour."""
 
     def __init__(self, hass, client, profile, scan_interval=CONFIG_SCAN_INTERVAL):
         super().__init__(
@@ -245,5 +218,4 @@ class SrneConfigCoordinator(_SrneBaseCoordinator):
         )
 
 
-# Keep a combined coordinator alias used by the quarantine sensor
 SrneInverterCoordinator = SrneTelemetryCoordinator

@@ -53,9 +53,6 @@ async def async_setup_entry(
             ))
 
     async_add_entities(entities)
-    async_add_entities([SrneQuarantineSensor(
-        telemetry_coord, entry.entry_id, DEFAULT_MODEL_NAME, device_name
-    )])
 
     # Serial number — read once on startup, stored in hass.data
     sn = hass.data[DOMAIN][entry.entry_id].get("serial_number")
@@ -165,24 +162,3 @@ class SrneSerialNumberSensor(SrneInverterEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         return self._serial_number
-
-
-class SrneQuarantineSensor(SrneInverterEntity, SensorEntity):
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator, config_entry_id, device_model, device_name):
-        pseudo = {"key": "quarantined_registers", "name": "Quarantined Registers",
-                  "note": "Registers excluded after repeated read failures.", "param_number": None}
-        super().__init__(coordinator, pseudo, config_entry_id, device_model, device_name)
-
-    @property
-    def available(self) -> bool:
-        return True
-
-    @property
-    def native_value(self) -> int:
-        return len(self.coordinator.quarantined_keys)
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        return {"quarantined_keys": sorted(self.coordinator.quarantined_keys)}
